@@ -1,0 +1,39 @@
+[
+  {
+    "target": "https://www.example.com/",
+    "http_status": 200,
+    "request_config": {
+      "headers": {
+        "User-Agent": "WhatWeb/0.6.4"
+      }
+    },
+    "plugins": {
+      "HTTPServer": {
+        "string": ["nginx/1.24.0"],
+        "certainty": 75
+      },
+      "nginx": {
+        "version": ["1.24.0"],
+        "string": ["nginx/1.24.0"]
+      },
+      "WordPress": {
+        "version": ["6.4.3", "6.4.4"],
+        "module": ["wp-content"]
+      }
+    }
+  },
+  {
+    "target": "https://api.example.com/v1",
+    "http_status": 200,
+    "request_config": {},
+    "plugins": {
+      "nginx": {
+        "version": ["1.24.0"],
+        "string": ["nginx/1.24.0"]
+      },
+      "X-Powered-By": {
+        "string": ["Express"]
+      }
+    }
+  }
+]

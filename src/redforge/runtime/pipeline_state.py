@@ -9,9 +9,6 @@ class PipelineStateKey:
     ALIVE_HOSTS = "alive_hosts"
     ENDPOINTS = "endpoints"
     TECHNOLOGIES = "technologies"
-    SERVICES = "services"
-    FINDINGS = "findings"
-    EVIDENCE = "evidence"
     ASSET_INTELLIGENCE = "asset_intelligence"
 
 

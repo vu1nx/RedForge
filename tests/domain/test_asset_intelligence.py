@@ -62,7 +62,13 @@ def test_asset_intelligence_defaults_to_empty_snapshot() -> None:
     assert AssetIntelligence() == AssetIntelligence(
         assets=(),
         technology_associations=(),
-        service_associations=(),
-        finding_associations=(),
-        evidence_associations=(),
     )
+
+
+def test_read_model_exposes_only_supported_relationships() -> None:
+    """Unsupported knowledge relationships are not implied by the contract."""
+    intelligence = AssetIntelligence()
+
+    assert not hasattr(intelligence, "service_associations")
+    assert not hasattr(intelligence, "finding_associations")
+    assert not hasattr(intelligence, "evidence_associations")

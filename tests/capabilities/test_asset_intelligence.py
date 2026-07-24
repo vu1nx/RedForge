@@ -1,14 +1,13 @@
 """Tests for the Asset Intelligence capability."""
 
-from datetime import UTC, datetime
 from ipaddress import ip_address
 
+import pytest  # type: ignore[reportMissingImports]
+
 from redforge.capabilities.asset_intelligence import AssetIntelligenceCapability
+from redforge.domain.asset_intelligence import AssetIntelligence
 from redforge.domain.endpoint import Endpoint
-from redforge.domain.evidence import Evidence
-from redforge.domain.finding import Finding, Severity
 from redforge.domain.host import Host
-from redforge.domain.service import Service
 from redforge.domain.technology import Technology
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.context import Context
@@ -97,78 +96,6 @@ def test_same_technology_on_different_assets_remains_distinct() -> None:
     }
 
 
-def test_findings_require_explicit_asset_identifier_and_evidence_is_transitive() -> None:
-    """Target-level findings are not guessed onto assets."""
-    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
-    associated = Finding(
-        identifier="finding-1",
-        title="Exposed panel",
-        severity=Severity.INFO,
-        description="Administrative panel observed",
-        target_id="asset:admin.example.com",
-        timestamp=timestamp,
-    )
-    target_level = Finding(
-        identifier="finding-2",
-        title="Target note",
-        severity=Severity.INFO,
-        description="Target-level observation",
-        target_id="example.com",
-        timestamp=timestamp,
-    )
-    evidence = Evidence(
-        identifier="evidence-1",
-        finding_id="finding-1",
-        type="log",
-        content="HTTP 200",
-        timestamp=timestamp,
-        source="test",
-    )
-    context = Context(
-        target_id="example.com",
-        state={
-            PipelineStateKey.ENDPOINTS: [
-                Endpoint(
-                    host="admin.example.com",
-                    port=443,
-                    protocol="https",
-                    path="/",
-                )
-            ],
-            PipelineStateKey.FINDINGS: [associated, target_level],
-            PipelineStateKey.EVIDENCE: [evidence],
-        },
-    )
-
-    result = AssetIntelligenceCapability().execute(context)
-
-    assert len(result.data.finding_associations) == 1
-    assert result.data.finding_associations[0].knowledge is associated
-    assert len(result.data.evidence_associations) == 1
-    assert result.data.evidence_associations[0].asset_id == ("asset:admin.example.com")
-    assert result.metadata["unassociated_finding_count"] == 1
-
-
-def test_services_without_provenance_are_not_guessed_onto_assets() -> None:
-    """Matching a common port alone is insufficient evidence of ownership."""
-    service = Service(name="https", port=443, protocol="tcp")
-    context = Context(
-        target_id="example.com",
-        state={
-            PipelineStateKey.ENDPOINTS: [
-                Endpoint(host="one.example.com", port=443, protocol="https", path="/"),
-                Endpoint(host="two.example.com", port=443, protocol="https", path="/"),
-            ],
-            PipelineStateKey.SERVICES: [service],
-        },
-    )
-
-    result = AssetIntelligenceCapability().execute(context)
-
-    assert result.data.service_associations == ()
-    assert result.metadata["unassociated_service_count"] == 1
-
-
 def test_unprovenanced_technology_remains_unassociated() -> None:
     """Knowledge without an addressable source is retained upstream, not guessed."""
     technology = Technology(name="Unknown", category="other")
@@ -182,6 +109,109 @@ def test_unprovenanced_technology_remains_unassociated() -> None:
     assert result.data.assets == ()
     assert result.data.technology_associations == ()
     assert result.metadata["unassociated_technology_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "https://[invalid",
+        "https://[gggg::1]/",
+        "not-a-url",
+    ],
+)
+def test_malformed_technology_source_is_ignored(source: str) -> None:
+    """Untrusted provenance cannot terminate Asset Intelligence."""
+    technology = Technology(name="Unknown", category="other", source=source)
+    context = Context(
+        target_id="example.com",
+        state={
+            PipelineStateKey.ENDPOINTS: [
+                Endpoint(host="valid.example.com", port=443, protocol="https")
+            ],
+            PipelineStateKey.TECHNOLOGIES: [technology],
+        },
+    )
+
+    result = AssetIntelligenceCapability().execute(context)
+
+    assert result.status == Status.SUCCESS
+    assert [asset.identifier for asset in result.data.assets] == ["asset:valid.example.com"]
+    assert result.data.technology_associations == ()
+    assert result.metadata["unassociated_technology_count"] == 1
+
+
+def test_identifiers_and_aliases_are_independent_of_input_order() -> None:
+    """The same snapshot facts produce identical ordered identity output."""
+    first_host = Host(address=ip_address("203.0.113.10"), hostname="z.example.com")
+    second_host = Host(address=ip_address("203.0.113.10"), hostname="a.example.com")
+    first_endpoint = Endpoint(host="z.example.com", port=443, protocol="https", path="/z")
+    second_endpoint = Endpoint(host="a.example.com", port=80, protocol="http", path="/a")
+
+    def execute(*, reverse: bool) -> AssetIntelligence:
+        hosts = [first_host, second_host]
+        endpoints = [first_endpoint, second_endpoint]
+        subdomains = ["z.example.com", "a.example.com"]
+        if reverse:
+            hosts.reverse()
+            endpoints.reverse()
+            subdomains.reverse()
+        context = Context(
+            target_id="example.com",
+            state={
+                PipelineStateKey.SUBDOMAINS: subdomains,
+                PipelineStateKey.ALIVE_HOSTS: hosts,
+                PipelineStateKey.ENDPOINTS: endpoints,
+            },
+        )
+        return AssetIntelligenceCapability().execute(context).data
+
+    forward = execute(reverse=False)
+    reverse = execute(reverse=True)
+
+    assert forward == reverse
+    assert forward.assets[0].identifier == "asset:a.example.com"
+    assert forward.assets[0].aliases == (
+        "203.0.113.10",
+        "a.example.com",
+        "z.example.com",
+    )
+
+
+def test_identifier_is_snapshot_local_to_available_identity_data() -> None:
+    """Enrichment can change an ID because cross-scan persistence is out of scope."""
+    address = ip_address("203.0.113.10")
+    ip_only = Context(
+        target_id="example.com",
+        state={PipelineStateKey.HOSTS: [Host(address=address)]},
+    )
+    enriched = Context(
+        target_id="example.com",
+        state={PipelineStateKey.HOSTS: [Host(address=address, hostname="www.example.com")]},
+    )
+
+    ip_asset = AssetIntelligenceCapability().execute(ip_only).data.assets[0]
+    enriched_asset = AssetIntelligenceCapability().execute(enriched).data.assets[0]
+
+    assert ip_asset.identifier == "asset:203.0.113.10"
+    assert enriched_asset.identifier == "asset:www.example.com"
+
+
+def test_duplicate_technology_associations_are_deduplicated() -> None:
+    """Set-backed deduplication preserves one deterministic relationship."""
+    technology = Technology(
+        name="nginx",
+        category="web-server",
+        source="https://www.example.com/",
+    )
+    context = Context(
+        target_id="example.com",
+        state={PipelineStateKey.TECHNOLOGIES: [technology, technology]},
+    )
+
+    result = AssetIntelligenceCapability().execute(context)
+
+    assert len(result.data.technology_associations) == 1
+    assert result.metadata["unassociated_technology_count"] == 0
 
 
 def test_invalid_or_empty_state_returns_empty_successful_snapshot() -> None:

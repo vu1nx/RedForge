@@ -9,10 +9,7 @@ from redforge.domain.asset import Asset
 from redforge.domain.asset_association import AssetAssociation
 from redforge.domain.asset_intelligence import AssetIntelligence
 from redforge.domain.endpoint import Endpoint
-from redforge.domain.evidence import Evidence
-from redforge.domain.finding import Finding
 from redforge.domain.host import Host
-from redforge.domain.service import Service
 from redforge.domain.technology import Technology
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
@@ -69,7 +66,7 @@ class _IdentityIndex:
 
 
 class AssetIntelligenceCapability(Capability):
-    """Build stable asset identities and explicit security-knowledge relationships."""
+    """Build snapshot-local asset identities and explicit technology relationships."""
 
     def execute(self, context: Context) -> Result[AssetIntelligence]:
         """Correlate pipeline knowledge into the Asset Intelligence read model."""
@@ -81,9 +78,6 @@ class AssetIntelligenceCapability(Capability):
         technologies = self._get_typed_list(
             context.state, PipelineStateKey.TECHNOLOGIES, Technology
         )
-        services = self._get_typed_list(context.state, PipelineStateKey.SERVICES, Service)
-        findings = self._get_typed_list(context.state, PipelineStateKey.FINDINGS, Finding)
-        evidence = self._get_typed_list(context.state, PipelineStateKey.EVIDENCE, Evidence)
 
         index = self._build_identity_index(subdomains, hosts, endpoints, technologies)
         assets, assets_by_builder = self._build_assets(index)
@@ -91,18 +85,10 @@ class AssetIntelligenceCapability(Capability):
         technology_associations, unassociated_technology_count = self._associate_technologies(
             technologies, index, assets_by_builder
         )
-        finding_associations, unassociated_finding_count = self._associate_findings(
-            findings, assets
-        )
-        evidence_associations, unassociated_evidence_count = self._associate_evidence(
-            evidence, finding_associations
-        )
 
         intelligence = AssetIntelligence(
             assets=assets,
             technology_associations=technology_associations,
-            finding_associations=finding_associations,
-            evidence_associations=evidence_associations,
         )
         return Result(
             status=Status.SUCCESS,
@@ -111,9 +97,6 @@ class AssetIntelligenceCapability(Capability):
                 "asset_count": len(assets),
                 "technology_association_count": len(technology_associations),
                 "unassociated_technology_count": unassociated_technology_count,
-                "unassociated_service_count": len(services),
-                "unassociated_finding_count": unassociated_finding_count,
-                "unassociated_evidence_count": unassociated_evidence_count,
             },
         )
 
@@ -194,6 +177,7 @@ class AssetIntelligenceCapability(Capability):
         assets_by_builder: dict[int, Asset],
     ) -> tuple[tuple[AssetAssociation[Technology], ...], int]:
         associations: list[AssetAssociation[Technology]] = []
+        seen: set[AssetAssociation[Technology]] = set()
         unassociated_count = 0
         for technology in technologies:
             alias = self._source_host(technology.source)
@@ -203,60 +187,26 @@ class AssetIntelligenceCapability(Capability):
                 continue
             asset = assets_by_builder[id(builder)]
             association = AssetAssociation(asset_id=asset.identifier, knowledge=technology)
-            if association not in associations:
+            if association not in seen:
+                seen.add(association)
                 associations.append(association)
 
         associations.sort(
             key=lambda association: (
                 association.asset_id,
                 association.knowledge.name,
+                association.knowledge.category,
                 association.knowledge.version or "",
+                association.knowledge.vendor or "",
+                association.knowledge.description or "",
                 association.knowledge.source or "",
+                association.knowledge.evidence,
+                association.knowledge.confidence
+                if association.knowledge.confidence is not None
+                else -1,
             )
         )
         return tuple(associations), unassociated_count
-
-    def _associate_findings(
-        self, findings: list[Finding], assets: tuple[Asset, ...]
-    ) -> tuple[tuple[AssetAssociation[Finding], ...], int]:
-        asset_ids = {asset.identifier for asset in assets}
-        associations = [
-            AssetAssociation(asset_id=finding.target_id, knowledge=finding)
-            for finding in findings
-            if finding.target_id in asset_ids
-        ]
-        associations.sort(
-            key=lambda association: (
-                association.asset_id,
-                association.knowledge.identifier,
-            )
-        )
-        return tuple(associations), len(findings) - len(associations)
-
-    def _associate_evidence(
-        self,
-        evidence: list[Evidence],
-        finding_associations: tuple[AssetAssociation[Finding], ...],
-    ) -> tuple[tuple[AssetAssociation[Evidence], ...], int]:
-        asset_by_finding = {
-            association.knowledge.identifier: association.asset_id
-            for association in finding_associations
-        }
-        associations = [
-            AssetAssociation(
-                asset_id=asset_by_finding[item.finding_id],
-                knowledge=item,
-            )
-            for item in evidence
-            if item.finding_id in asset_by_finding
-        ]
-        associations.sort(
-            key=lambda association: (
-                association.asset_id,
-                association.knowledge.identifier,
-            )
-        )
-        return tuple(associations), len(evidence) - len(associations)
 
     def _get_subdomains(self, state: dict[str, Any]) -> list[str]:  # type: ignore[reportUnknownParameterType]
         value = state.get(PipelineStateKey.SUBDOMAINS, [])
@@ -284,7 +234,10 @@ class AssetIntelligenceCapability(Capability):
     def _source_host(self, source: str | None) -> str | None:
         if not source:
             return None
-        hostname = urlsplit(source).hostname
+        try:
+            hostname = urlsplit(source).hostname
+        except ValueError:
+            return None
         if not hostname:
             return None
         return self._normalize_alias(hostname)

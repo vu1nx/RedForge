@@ -15,7 +15,11 @@ class Asset:
     """
 
     identifier: str
-    """Unique identifier for the asset."""
+    """Deterministic identifier within one Asset Intelligence snapshot.
+
+    The identifier is derived from the best canonical alias available in that
+    snapshot. It is not a persistent cross-scan identity.
+    """
 
     type: str
     """Type or category of the asset."""

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class AssetAssociation[T]:
-    """Associates independent domain knowledge with a stable asset identity."""
+    """Associates independent knowledge with an asset in a read-model snapshot."""
 
     asset_id: str
     """Identifier of the related asset."""

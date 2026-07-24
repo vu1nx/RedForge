@@ -9,6 +9,7 @@ class PipelineStateKey:
     ALIVE_HOSTS = "alive_hosts"
     ENDPOINTS = "endpoints"
     TECHNOLOGIES = "technologies"
+    ASSET_INTELLIGENCE = "asset_intelligence"
 
 
 CAPABILITY_OUTPUT_KEYS: dict[str, str] = {
@@ -16,4 +17,5 @@ CAPABILITY_OUTPUT_KEYS: dict[str, str] = {
     "http_probe": PipelineStateKey.ALIVE_HOSTS,
     "web_crawl": PipelineStateKey.ENDPOINTS,
     "technology_detection": PipelineStateKey.TECHNOLOGIES,
+    "asset_intelligence": PipelineStateKey.ASSET_INTELLIGENCE,
 }

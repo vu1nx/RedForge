@@ -191,11 +191,16 @@ def test_known_capability_output_keys() -> None:
         "technology_detection",
         result=Result(status=Status.SUCCESS, data=["nginx"]),
     )
+    asset_intelligence = MockCapability(
+        "asset_intelligence",
+        result=Result(status=Status.SUCCESS, data={"assets": ["example.com"]}),
+    )
 
     pipeline = Pipeline()
     pipeline.add(subdomain)
     pipeline.add(http_probe)
     pipeline.add(technology_detection)
+    pipeline.add(asset_intelligence)
 
     result = pipeline.run("example.com")
 
@@ -206,3 +211,6 @@ def test_known_capability_output_keys() -> None:
     }
     assert result.context.state[PipelineStateKey.ALIVE_HOSTS] == ["www.example.com"]
     assert result.context.state[PipelineStateKey.TECHNOLOGIES] == ["nginx"]
+    assert result.context.state[PipelineStateKey.ASSET_INTELLIGENCE] == {
+        "assets": ["example.com"]
+    }

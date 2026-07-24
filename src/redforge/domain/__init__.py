@@ -4,6 +4,8 @@ This package contains immutable domain models representing core entities.
 """
 
 from redforge.domain.asset import Asset
+from redforge.domain.asset_association import AssetAssociation
+from redforge.domain.asset_intelligence import AssetIntelligence
 from redforge.domain.endpoint import Endpoint
 from redforge.domain.evidence import Evidence
 from redforge.domain.finding import Finding
@@ -14,6 +16,8 @@ from redforge.domain.technology import Technology
 
 __all__ = [
     "Asset",
+    "AssetAssociation",
+    "AssetIntelligence",
     "Evidence",
     "Finding",
     "Host",

@@ -2,16 +2,24 @@
 
 from dataclasses import dataclass
 
+from redforge.domain.endpoint import Endpoint
+from redforge.domain.host import Host
+
 
 @dataclass(frozen=True, slots=True)
 class Asset:
-    """Represents an asset within a target environment.
+    """Represents the stable identity of an asset within a target environment.
 
-    An asset is a resource that has value and may be subject to security assessment.
+    Security knowledge is related to an asset through explicit associations
+    rather than being owned by this identity model.
     """
 
     identifier: str
-    """Unique identifier for the asset."""
+    """Deterministic identifier within one Asset Intelligence snapshot.
+
+    The identifier is derived from the best canonical alias available in that
+    snapshot. It is not a persistent cross-scan identity.
+    """
 
     type: str
     """Type or category of the asset."""
@@ -21,3 +29,12 @@ class Asset:
 
     description: str | None = None
     """Additional description or context about the asset."""
+
+    aliases: tuple[str, ...] = ()
+    """Normalized domain names and addresses that identify the asset."""
+
+    hosts: tuple[Host, ...] = ()
+    """Host identities resolved for the asset."""
+
+    endpoints: tuple[Endpoint, ...] = ()
+    """Known network endpoints through which the asset can be reached."""

@@ -195,12 +195,20 @@ def test_known_capability_output_keys() -> None:
         "asset_intelligence",
         result=Result(status=Status.SUCCESS, data={"assets": ["example.com"]}),
     )
+    vulnerability_intelligence = MockCapability(
+        "vulnerability_intelligence",
+        result=Result(
+            status=Status.SUCCESS,
+            data={"vulnerabilities": ["CVE-2026-0001"]},
+        ),
+    )
 
     pipeline = Pipeline()
     pipeline.add(subdomain)
     pipeline.add(http_probe)
     pipeline.add(technology_detection)
     pipeline.add(asset_intelligence)
+    pipeline.add(vulnerability_intelligence)
 
     result = pipeline.run("example.com")
 
@@ -214,3 +222,75 @@ def test_known_capability_output_keys() -> None:
     assert result.context.state[PipelineStateKey.ASSET_INTELLIGENCE] == {
         "assets": ["example.com"]
     }
+    assert result.context.state[PipelineStateKey.VULNERABILITY_INTELLIGENCE] == {
+        "vulnerabilities": ["CVE-2026-0001"]
+    }
+
+
+def test_partial_vulnerability_intelligence_is_stored_and_pipeline_continues() -> None:
+    """PARTIAL remains capability-local under the existing pipeline contract."""
+    asset_snapshot = {"assets": ["example.com"]}
+    asset_intelligence = MockCapability(
+        "asset_intelligence",
+        result=Result(status=Status.SUCCESS, data=asset_snapshot),
+    )
+    vulnerability_snapshot = {"vulnerabilities": ["CVE-2026-0001"]}
+    vulnerability_intelligence = MockCapability(
+        "vulnerability_intelligence",
+        result=Result(
+            status=Status.PARTIAL,
+            data=vulnerability_snapshot,
+            errors=["one provider lookup failed"],
+        ),
+    )
+    next_capability = MockCapability(
+        "next",
+        result=Result(status=Status.SUCCESS, data={"continued": True}),
+    )
+    pipeline = Pipeline()
+    pipeline.add(asset_intelligence)
+    pipeline.add(vulnerability_intelligence)
+    pipeline.add(next_capability)
+
+    result = pipeline.run("example.com")
+
+    assert result.status == Status.SUCCESS
+    assert result.executed_capabilities == (
+        "asset_intelligence",
+        "vulnerability_intelligence",
+        "next",
+    )
+    assert (
+        result.context.state[PipelineStateKey.VULNERABILITY_INTELLIGENCE]
+        is vulnerability_snapshot
+    )
+    assert result.context.state[PipelineStateKey.ASSET_INTELLIGENCE] is asset_snapshot
+    assert next_capability.execute_calls
+
+
+def test_vulnerability_intelligence_error_stops_pipeline_after_storing_output() -> None:
+    """ERROR follows existing fail-fast semantics and retains diagnostic output."""
+    vulnerability_snapshot: dict[str, list[str]] = {"vulnerabilities": []}
+    vulnerability_intelligence = MockCapability(
+        "vulnerability_intelligence",
+        result=Result(
+            status=Status.ERROR,
+            data=vulnerability_snapshot,
+            errors=["NVD unavailable"],
+        ),
+    )
+    skipped = MockCapability(
+        "skipped",
+        result=Result(status=Status.SUCCESS, data=None),
+    )
+    pipeline = Pipeline()
+    pipeline.add(vulnerability_intelligence)
+    pipeline.add(skipped)
+
+    result = pipeline.run("example.com")
+
+    assert result.status == Status.ERROR
+    assert result.context.state[PipelineStateKey.VULNERABILITY_INTELLIGENCE] is (
+        vulnerability_snapshot
+    )
+    assert skipped.execute_calls == []

@@ -4,39 +4,61 @@ import contextlib
 import json
 import shutil
 import subprocess
-from typing import TYPE_CHECKING, Any, cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
+from redforge.adapters.errors import (
+    AdapterConfigurationError,
+    AdapterError,
+    AdapterResponseError,
+    AdapterUnavailableError,
+)
 from redforge.domain.endpoint import Endpoint
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-class KatanaAdapterError(Exception):
+class KatanaAdapterError(AdapterError):
     """Base exception for Katana adapter errors."""
 
     pass
 
 
-class KatanaNotFoundError(KatanaAdapterError):
+class KatanaNotFoundError(KatanaAdapterError, AdapterConfigurationError):
     """Raised when Katana binary is not found."""
 
     pass
 
 
-class KatanaExecutionError(KatanaAdapterError):
+class KatanaExecutionError(KatanaAdapterError, AdapterUnavailableError):
     """Raised when Katana execution fails."""
 
     def __init__(self, returncode: int, stderr: str) -> None:
         self.returncode = returncode
-        self.stderr = stderr
+        del stderr
         super().__init__(f"Katana execution failed with return code {returncode}")
 
 
-class KatanaParseError(KatanaAdapterError):
+class KatanaParseError(KatanaAdapterError, AdapterResponseError):
     """Raised when Katana output cannot be parsed."""
 
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class WebCrawlAdapterResult:
+    """Typed deterministic endpoint crawler output."""
+
+    endpoints: tuple[Endpoint, ...] = ()
+
+
+class WebCrawler(Protocol):
+    """Minimal web crawling port."""
+
+    def crawl(self, hosts: tuple[str, ...]) -> WebCrawlAdapterResult:
+        """Crawl application-layer host URLs."""
+        ...
 
 
 class KatanaAdapter:
@@ -61,7 +83,7 @@ class KatanaAdapter:
             KatanaNotFoundError: If Katana binary is not found.
         """
         if not shutil.which(self.binary_path):
-            raise KatanaNotFoundError(f"Katana binary not found: {self.binary_path}")
+            raise KatanaNotFoundError("Katana binary not found")
 
     def crawl_hosts(self, hosts: list[str]) -> list[Endpoint]:
         """Crawl hosts for endpoints using Katana.
@@ -104,6 +126,23 @@ class KatanaAdapter:
             raise KatanaExecutionError(e.returncode, e.stderr) from e
 
         return self._parse_output(result.stdout)
+
+    def crawl(self, hosts: tuple[str, ...]) -> WebCrawlAdapterResult:
+        """Implement the typed web crawler port."""
+        endpoints = self.crawl_hosts(list(hosts))
+        return WebCrawlAdapterResult(
+            endpoints=tuple(
+                sorted(
+                    set(endpoints),
+                    key=lambda item: (
+                        item.host,
+                        item.port,
+                        item.protocol,
+                        item.path or "",
+                    ),
+                )
+            )
+        )
 
     def _parse_output(self, stdout: str) -> list[Endpoint]:
         endpoints: list[Endpoint] = []

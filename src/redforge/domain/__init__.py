@@ -9,8 +9,25 @@ from redforge.domain.asset_intelligence import AssetIntelligence
 from redforge.domain.endpoint import Endpoint
 from redforge.domain.evidence import Evidence
 from redforge.domain.finding import Finding
-from redforge.domain.host import Host
+from redforge.domain.host import Host, HostAddress, HostResolution, IPVersion
+from redforge.domain.knowledge_graph import (
+    KnowledgeGraph,
+    KnowledgeGraphEdge,
+    KnowledgeGraphEntity,
+    KnowledgeGraphNode,
+    KnowledgeNodeKind,
+    KnowledgeRelationKind,
+)
 from redforge.domain.product_identifier import ProductIdentifier
+from redforge.domain.risk_intelligence import (
+    RiskAssessment,
+    RiskFactor,
+    RiskFactorKind,
+    RiskIntelligence,
+    RiskLevel,
+    risk_assessment_identifier,
+    risk_level_for_score,
+)
 from redforge.domain.service import Service
 from redforge.domain.target import Target
 from redforge.domain.technology import Technology
@@ -29,8 +46,22 @@ __all__ = [
     "Evidence",
     "Finding",
     "Host",
+    "HostAddress",
+    "HostResolution",
+    "IPVersion",
+    "KnowledgeGraph",
+    "KnowledgeGraphEdge",
+    "KnowledgeGraphEntity",
+    "KnowledgeGraphNode",
+    "KnowledgeNodeKind",
+    "KnowledgeRelationKind",
     "Endpoint",
     "ProductIdentifier",
+    "RiskAssessment",
+    "RiskFactor",
+    "RiskFactorKind",
+    "RiskIntelligence",
+    "RiskLevel",
     "Service",
     "Target",
     "Technology",
@@ -40,4 +71,6 @@ __all__ = [
     "VulnerabilityMatchConfidence",
     "VulnerabilityMatchMethod",
     "VulnerabilitySeverity",
+    "risk_assessment_identifier",
+    "risk_level_for_score",
 ]

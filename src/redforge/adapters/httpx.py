@@ -3,40 +3,62 @@
 import json
 import shutil
 import subprocess
+from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv6Address, ip_address
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
+from redforge.adapters.errors import (
+    AdapterConfigurationError,
+    AdapterError,
+    AdapterResponseError,
+    AdapterUnavailableError,
+)
 from redforge.domain.host import Host
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-class HttpxAdapterError(Exception):
+class HttpxAdapterError(AdapterError):
     """Base exception for httpx adapter errors."""
 
     pass
 
 
-class HttpxNotFoundError(HttpxAdapterError):
+class HttpxNotFoundError(HttpxAdapterError, AdapterConfigurationError):
     """Raised when httpx binary is not found."""
 
     pass
 
 
-class HttpxExecutionError(HttpxAdapterError):
+class HttpxExecutionError(HttpxAdapterError, AdapterUnavailableError):
     """Raised when httpx execution fails."""
 
     def __init__(self, returncode: int, stderr: str) -> None:
         self.returncode = returncode
-        self.stderr = stderr
+        del stderr
         super().__init__(f"httpx execution failed with return code {returncode}")
 
 
-class HttpxParseError(HttpxAdapterError):
+class HttpxParseError(HttpxAdapterError, AdapterResponseError):
     """Raised when httpx output cannot be parsed."""
 
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class HttpProbeAdapterResult:
+    """Typed HTTP probe output containing responsive hosts."""
+
+    hosts: tuple[Host, ...] = ()
+
+
+class HttpProbeTransport(Protocol):
+    """Minimal HTTP probing port."""
+
+    def probe(self, hosts: tuple[Host, ...]) -> HttpProbeAdapterResult:
+        """Probe hostname identities and return responsive hosts."""
+        ...
 
 
 class HttpxAdapter:
@@ -61,7 +83,7 @@ class HttpxAdapter:
             HttpxNotFoundError: If httpx binary is not found.
         """
         if not shutil.which(self.binary_path):
-            raise HttpxNotFoundError(f"httpx binary not found: {self.binary_path}")
+            raise HttpxNotFoundError("httpx binary not found")
 
     def probe_hosts(self, hosts: list[Host]) -> list[Host]:
         """Probe hosts for reachable HTTP/HTTPS services using httpx.
@@ -103,6 +125,10 @@ class HttpxAdapter:
             raise HttpxExecutionError(e.returncode, e.stderr) from e
 
         return self._parse_output(result.stdout)
+
+    def probe(self, hosts: tuple[Host, ...]) -> HttpProbeAdapterResult:
+        """Implement the typed HTTP probing port."""
+        return HttpProbeAdapterResult(hosts=tuple(self.probe_hosts(list(hosts))))
 
     def _host_to_input(self, host: Host) -> str:
         if host.hostname:

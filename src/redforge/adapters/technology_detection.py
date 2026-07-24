@@ -4,46 +4,72 @@ import json
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
+from redforge.adapters.errors import (
+    AdapterConfigurationError,
+    AdapterError,
+    AdapterResponseError,
+    AdapterUnavailableError,
+)
 from redforge.domain.technology import Technology
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-class TechnologyDetectionAdapterError(Exception):
+class TechnologyDetectionAdapterError(AdapterError):
     """Base exception for technology detection adapter errors."""
 
     pass
 
 
-class TechnologyDetectionNotFoundError(TechnologyDetectionAdapterError):
+class TechnologyDetectionNotFoundError(
+    TechnologyDetectionAdapterError, AdapterConfigurationError
+):
     """Raised when WhatWeb binary is not found."""
 
     pass
 
 
-class TechnologyDetectionExecutionError(TechnologyDetectionAdapterError):
+class TechnologyDetectionExecutionError(
+    TechnologyDetectionAdapterError, AdapterUnavailableError
+):
     """Raised when WhatWeb execution fails."""
 
     def __init__(self, returncode: int | None, stderr: str) -> None:
         self.returncode = returncode
-        self.stderr = stderr
+        del stderr
         if returncode is None:
             message = "WhatWeb execution failed"
         else:
             message = f"WhatWeb execution failed with return code {returncode}"
-        if stderr:
-            message = f"{message}: {stderr.strip()}"
         super().__init__(message)
 
 
-class TechnologyDetectionParseError(TechnologyDetectionAdapterError):
+class TechnologyDetectionParseError(
+    TechnologyDetectionAdapterError, AdapterResponseError
+):
     """Raised when WhatWeb output cannot be parsed."""
 
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class TechnologyDetectionResult:
+    """Typed deterministic technology detector output."""
+
+    technologies: tuple[Technology, ...] = ()
+
+
+class TechnologyDetector(Protocol):
+    """Minimal technology detection port."""
+
+    def detect(self, endpoints: tuple[str, ...]) -> TechnologyDetectionResult:
+        """Detect technologies for sanitized endpoint URLs."""
+        ...
 
 
 class TechnologyDetectionAdapter:
@@ -70,9 +96,7 @@ class TechnologyDetectionAdapter:
             TechnologyDetectionNotFoundError: If WhatWeb binary is not found.
         """
         if not shutil.which(self.binary_path):
-            raise TechnologyDetectionNotFoundError(
-                f"WhatWeb binary not found: {self.binary_path}"
-            )
+            raise TechnologyDetectionNotFoundError("WhatWeb binary not found")
 
     def detect_technologies(self, endpoints: list[str]) -> list[Technology]:
         """Detect technologies for the given endpoints using WhatWeb.
@@ -126,6 +150,13 @@ class TechnologyDetectionAdapter:
                 raise TechnologyDetectionParseError("WhatWeb did not create its JSON output file")
 
             return self._parse_output(output_path.read_text(encoding="utf-8"))
+
+    def detect(self, endpoints: tuple[str, ...]) -> TechnologyDetectionResult:
+        """Implement the typed technology detector port."""
+        technologies = self.detect_technologies(list(endpoints))
+        return TechnologyDetectionResult(
+            technologies=tuple(sorted(set(technologies), key=_technology_sort_key))
+        )
 
     def _parse_output(self, output: str) -> list[Technology]:
         technologies: list[Technology] = []
@@ -276,3 +307,15 @@ class TechnologyDetectionAdapter:
 
         # Default category
         return "other"
+
+
+def _technology_sort_key(technology: Technology) -> tuple[object, ...]:
+    return (
+        technology.name,
+        technology.category,
+        technology.version or "",
+        technology.vendor or "",
+        technology.source or "",
+        technology.evidence,
+        technology.confidence if technology.confidence is not None else -1,
+    )

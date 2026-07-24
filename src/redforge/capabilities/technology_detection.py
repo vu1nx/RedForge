@@ -1,10 +1,12 @@
 """Technology detection capability using WhatWeb."""
 
-from typing import Any
+from typing import Any, cast
 
+from redforge.adapters.errors import AdapterError
 from redforge.adapters.technology_detection import (
     TechnologyDetectionAdapter,
-    TechnologyDetectionAdapterError,
+    TechnologyDetectionResult,
+    TechnologyDetector,
 )
 from redforge.domain.endpoint import Endpoint
 from redforge.domain.technology import Technology
@@ -23,13 +25,18 @@ class TechnologyDetectionCapability(Capability):
 
     _ENDPOINTS_STATE_KEY = PipelineStateKey.ENDPOINTS
 
-    def __init__(self, binary_path: str = "whatweb") -> None:
+    def __init__(
+        self,
+        binary_path: str = "whatweb",
+        *,
+        detector: TechnologyDetector | None = None,
+    ) -> None:
         """Initialize the technology detection capability.
 
         Args:
             binary_path: Path to the WhatWeb binary (default: "whatweb").
         """
-        self._adapter = TechnologyDetectionAdapter(binary_path=binary_path)
+        self._detector = detector or TechnologyDetectionAdapter(binary_path=binary_path)
 
     def execute(self, context: Context) -> Result[list[Technology]]:
         """Execute technology detection against endpoints from pipeline state.
@@ -46,10 +53,39 @@ class TechnologyDetectionCapability(Capability):
             return Result(status=Status.SUCCESS, data=[])
 
         try:
-            technologies = self._adapter.detect_technologies(endpoints)
-            return Result(status=Status.SUCCESS, data=technologies)
-        except TechnologyDetectionAdapterError as e:
-            return Result(status=Status.ERROR, data=[], errors=[str(e)])
+            response = cast(object, self._detector.detect(tuple(endpoints)))
+        except AdapterError:
+            return Result(
+                status=Status.FAILURE,
+                data=[],
+                errors=["Technology detector is unavailable or returned an invalid response"],
+            )
+        except Exception:
+            return Result(
+                status=Status.ERROR,
+                data=[],
+                errors=["Technology detector failed with an unexpected execution error"],
+            )
+        if not isinstance(response, TechnologyDetectionResult):
+            return Result(
+                status=Status.ERROR,
+                data=[],
+                errors=["Technology detector returned an invalid result"],
+            )
+        response_technologies = cast(object, response.technologies)
+        if not isinstance(response_technologies, tuple) or not all(
+            isinstance(item, Technology)
+            for item in cast(tuple[object, ...], response_technologies)
+        ):
+            return Result(
+                status=Status.ERROR,
+                data=[],
+                errors=["Technology detector returned an invalid result"],
+            )
+        return Result(
+            status=Status.SUCCESS,
+            data=list(cast(tuple[Technology, ...], response_technologies)),
+        )
 
     def _get_endpoints_from_state(self, state: dict[str, Any]) -> list[str]:  # type: ignore[reportUnknownParameterType]
         endpoints_data = state.get(self._ENDPOINTS_STATE_KEY, [])

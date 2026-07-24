@@ -1,82 +1,123 @@
-"""Tests for HttpProbeCapability."""
+"""Tests for the typed HTTP Probe boundary."""
 
+from dataclasses import dataclass
 from ipaddress import IPv4Address
-from unittest.mock import MagicMock, patch
 
-from redforge.adapters.httpx import HttpxAdapterError
+import pytest  # type: ignore[reportMissingImports]
+
+from redforge.adapters.errors import AdapterUnavailableError
+from redforge.adapters.httpx import HttpProbeAdapterResult
 from redforge.capabilities.http_probe import HttpProbeCapability
-from redforge.domain.host import Host
+from redforge.domain.host import Host, HostResolution
+from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.context import Context
 from redforge.sdk.result import Status
 
 
-def _sample_hosts() -> list[Host]:
-    return [
-        Host(address=IPv4Address("93.184.216.34"), hostname="www.example.com"),
-        Host(address=IPv4Address("93.184.216.35"), hostname="api.example.com"),
+@dataclass
+class FakeTransport:
+    response: object
+    calls: list[tuple[Host, ...]]
+
+    def probe(self, hosts: tuple[Host, ...]) -> HttpProbeAdapterResult:
+        self.calls.append(hosts)
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response  # type: ignore[return-value]
+
+
+def _hosts() -> tuple[Host, ...]:
+    return (
+        Host(address=IPv4Address("192.0.2.1"), hostname="www.example.com"),
+        Host(address=IPv4Address("192.0.2.2"), hostname="api.example.com"),
+    )
+
+
+def _context() -> Context:
+    return Context(
+        target_id="example.com",
+        state={
+            PipelineStateKey.HOSTS: HostResolution(hosts=_hosts()),
+        },
+    )
+
+
+def test_capability_uses_typed_transport_and_deterministic_hosts() -> None:
+    transport = FakeTransport(
+        HttpProbeAdapterResult(hosts=tuple(reversed(_hosts()))),
+        [],
+    )
+
+    result = HttpProbeCapability(transport=transport).execute(_context())
+
+    assert result.status == Status.SUCCESS
+    assert transport.calls == [_hosts()]
+    assert [host.hostname for host in result.data] == [
+        "api.example.com",
+        "www.example.com",
     ]
 
 
-@patch("redforge.adapters.httpx.HttpxAdapter.probe_hosts")
-def test_http_probe_success(mock_probe: MagicMock) -> None:
-    """Test successful HTTP probing through the capability."""
-    alive_hosts = [_sample_hosts()[0]]
-    mock_probe.return_value = alive_hosts
+def test_empty_or_untyped_host_state_skips_transport() -> None:
+    transport = FakeTransport(HttpProbeAdapterResult(), [])
+    capability = HttpProbeCapability(transport=transport)
 
-    capability = HttpProbeCapability(binary_path="httpx")
-    context = Context(target_id="example.com", state={"hosts": _sample_hosts()})
-    result = capability.execute(context)
+    empty = capability.execute(
+        Context(
+            target_id="example.com",
+            state={PipelineStateKey.HOSTS: HostResolution()},
+        )
+    )
+    untyped = capability.execute(
+        Context(
+            target_id="example.com",
+            state={PipelineStateKey.HOSTS: ["unvalidated.example.com"]},
+        )
+    )
 
-    assert result.status == Status.SUCCESS
-    assert result.data == alive_hosts
-    assert len(result.errors) == 0
-
-    mock_probe.assert_called_once_with(_sample_hosts())
+    assert empty.status == untyped.status == Status.SUCCESS
+    assert empty.data == untyped.data == []
+    assert transport.calls == []
 
 
-@patch("redforge.adapters.httpx.HttpxAdapter.probe_hosts")
-def test_http_probe_adapter_error(mock_probe: MagicMock) -> None:
-    """Test HTTP probing when the adapter raises an error."""
-    mock_probe.side_effect = HttpxAdapterError("httpx not found")
+def test_expected_transport_failure_is_sanitized_failure() -> None:
+    transport = FakeTransport(
+        AdapterUnavailableError(
+            "Authorization: Bearer hidden-token C:\\private\\provider"
+        ),
+        [],
+    )
 
-    capability = HttpProbeCapability(binary_path="httpx")
-    context = Context(target_id="example.com", state={"hosts": _sample_hosts()})
-    result = capability.execute(context)
+    result = HttpProbeCapability(transport=transport).execute(_context())
+
+    assert result.status == Status.FAILURE
+    assert "hidden-token" not in repr(result)
+    assert "private" not in repr(result)
+
+
+@pytest.mark.parametrize("invalid", [None, {}, "invalid"])
+def test_invalid_transport_returns_are_sanitized_errors(invalid: object) -> None:
+    result = HttpProbeCapability(
+        transport=FakeTransport(invalid, [])
+    ).execute(_context())
 
     assert result.status == Status.ERROR
-    assert result.data == []
-    assert len(result.errors) == 1
-    assert "httpx not found" in result.errors[0]
+    assert result.errors == ["HTTP probe adapter returned an invalid result"]
 
 
-def test_http_probe_empty_result() -> None:
-    """Test HTTP probing with no hosts in pipeline state."""
-    capability = HttpProbeCapability(binary_path="httpx")
-    context = Context(target_id="example.com", state={"hosts": []})
-    result = capability.execute(context)
+def test_unexpected_transport_exception_is_sanitized_error() -> None:
+    result = HttpProbeCapability(
+        transport=FakeTransport(
+            RuntimeError("https://user:password@example.com"),
+            [],
+        )
+    ).execute(_context())
 
-    assert result.status == Status.SUCCESS
-    assert result.data == []
-    assert len(result.errors) == 0
-
-
-def test_http_probe_name() -> None:
-    """Test that the capability has the correct name."""
-    capability = HttpProbeCapability()
-    assert capability.name == "http_probe"
+    assert result.status == Status.ERROR
+    assert "password" not in repr(result)
 
 
-@patch("redforge.adapters.httpx.HttpxAdapter.probe_hosts")
-def test_http_probe_returns_typed_result(mock_probe: MagicMock) -> None:
-    """Test that the capability returns a typed Result object."""
-    alive_hosts = _sample_hosts()
-    mock_probe.return_value = alive_hosts
-
-    capability = HttpProbeCapability(binary_path="httpx")
-    context = Context(target_id="example.com", state={"hosts": _sample_hosts()})
-    result = capability.execute(context)
-
-    assert isinstance(result.data, list)
-    assert all(isinstance(host, Host) for host in result.data)
-    assert result.data[0].hostname == "www.example.com"
-    assert result.data[0].address == IPv4Address("93.184.216.34")
+def test_name() -> None:
+    assert HttpProbeCapability(
+        transport=FakeTransport(HttpProbeAdapterResult(), [])
+    ).name == "http_probe"

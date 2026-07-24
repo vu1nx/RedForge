@@ -2,31 +2,53 @@
 
 import shutil
 import subprocess
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
+
+from redforge.adapters.errors import (
+    AdapterConfigurationError,
+    AdapterError,
+    AdapterUnavailableError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-class SubfinderAdapterError(Exception):
+class SubfinderAdapterError(AdapterError):
     """Base exception for Subfinder adapter errors."""
 
     pass
 
 
-class SubfinderNotFoundError(SubfinderAdapterError):
+class SubfinderNotFoundError(SubfinderAdapterError, AdapterConfigurationError):
     """Raised when Subfinder binary is not found."""
 
     pass
 
 
-class SubfinderExecutionError(SubfinderAdapterError):
+class SubfinderExecutionError(SubfinderAdapterError, AdapterUnavailableError):
     """Raised when Subfinder execution fails."""
 
     def __init__(self, returncode: int, stderr: str) -> None:
         self.returncode = returncode
-        self.stderr = stderr
+        del stderr
         super().__init__(f"Subfinder execution failed with return code {returncode}")
+
+
+@dataclass(frozen=True, slots=True)
+class SubdomainDiscoveryResult:
+    """Typed deterministic candidate-hostname output."""
+
+    hostnames: tuple[str, ...] = ()
+
+
+class SubdomainProvider(Protocol):
+    """Minimal candidate hostname discovery port."""
+
+    def discover(self, domain: str) -> SubdomainDiscoveryResult:
+        """Discover candidate hostnames for a target domain."""
+        ...
 
 
 class SubfinderAdapter:
@@ -51,7 +73,7 @@ class SubfinderAdapter:
             SubfinderNotFoundError: If Subfinder binary is not found.
         """
         if not shutil.which(self.binary_path):
-            raise SubfinderNotFoundError(f"Subfinder binary not found: {self.binary_path}")
+            raise SubfinderNotFoundError("Subfinder binary not found")
 
     def discover_subdomains(self, domain: str) -> list[str]:
         """Discover subdomains for the given domain using Subfinder.
@@ -82,3 +104,12 @@ class SubfinderAdapter:
         # Parse output - one subdomain per line
         subdomains = [line.strip() for line in result.stdout.splitlines() if line.strip()]
         return subdomains
+
+    def discover(self, domain: str) -> SubdomainDiscoveryResult:
+        """Implement the typed discovery provider port."""
+        hostnames = {
+            item.strip().lower().removesuffix(".")
+            for item in self.discover_subdomains(domain)
+            if item.strip()
+        }
+        return SubdomainDiscoveryResult(hostnames=tuple(sorted(hostnames)))

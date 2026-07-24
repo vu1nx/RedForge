@@ -5,19 +5,26 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlencode
 from urllib.request import Request, urlopen
 
+from redforge.adapters.errors import (
+    AdapterConfigurationError,
+    AdapterError,
+    AdapterResponseError,
+    AdapterUnavailableError,
+)
 
-class NvdAdapterError(Exception):
+
+class NvdAdapterError(AdapterError):
     """Base exception for NVD adapter failures."""
 
     pass
 
 
-class NvdRequestError(NvdAdapterError):
+class NvdRequestError(NvdAdapterError, AdapterUnavailableError):
     """Raised when an NVD request cannot be completed."""
 
     def __init__(self, message: str, status_code: int | None = None) -> None:
@@ -25,7 +32,7 @@ class NvdRequestError(NvdAdapterError):
         super().__init__(message)
 
 
-class NvdAuthenticationError(NvdRequestError):
+class NvdAuthenticationError(NvdRequestError, AdapterConfigurationError):
     """Raised when NVD rejects authentication or authorization."""
 
     pass
@@ -44,7 +51,7 @@ class NvdRateLimitError(NvdRequestError):
         super().__init__(f"NVD rate limit exceeded{detail}", status_code=429)
 
 
-class NvdParseError(NvdAdapterError):
+class NvdParseError(NvdAdapterError, AdapterResponseError):
     """Raised when an NVD response cannot be parsed safely."""
 
     pass
@@ -78,6 +85,22 @@ class NvdVulnerabilityRecord:
     modified_at: str | None = None
     status: str | None = None
     source_identifier: str | None = None
+
+
+class VulnerabilityProvider(Protocol):
+    """Minimal typed vulnerability-provider port."""
+
+    def search_cpe_candidates(
+        self, name: str, version: str, vendor: str | None = None
+    ) -> tuple[NvdCpeCandidate, ...]:
+        """Return normalized candidate product identities."""
+        ...
+
+    def get_vulnerabilities(
+        self, cpe_name: str
+    ) -> tuple[NvdVulnerabilityRecord, ...]:
+        """Return normalized vulnerability records for an exact CPE."""
+        ...
 
 
 class NvdAdapter:
@@ -117,7 +140,7 @@ class NvdAdapter:
 
     def search_cpe_candidates(
         self, name: str, version: str, vendor: str | None = None
-    ) -> list[NvdCpeCandidate]:
+    ) -> tuple[NvdCpeCandidate, ...]:
         """Return normalized CPE candidates discovered by provider keyword search."""
         keywords = " ".join(
             value for value in (vendor, name, version) if value is not None and value
@@ -136,9 +159,11 @@ class NvdAdapter:
             seen.add(candidate.cpe_name)
             candidates.append(candidate)
         candidates.sort(key=lambda item: item.cpe_name)
-        return candidates
+        return tuple(candidates)
 
-    def get_vulnerabilities(self, cpe_name: str) -> list[NvdVulnerabilityRecord]:
+    def get_vulnerabilities(
+        self, cpe_name: str
+    ) -> tuple[NvdVulnerabilityRecord, ...]:
         """Return normalized non-rejected CVE records for an exact vulnerable CPE."""
         raw_vulnerabilities = self._get_paginated_items(
             self._CVE_PATH,
@@ -158,7 +183,7 @@ class NvdAdapter:
             seen.add(record.identifier)
             records.append(record)
         records.sort(key=lambda item: item.identifier)
-        return records
+        return tuple(records)
 
     def _get_paginated_items(
         self,

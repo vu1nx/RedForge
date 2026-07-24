@@ -4,6 +4,7 @@ from ipaddress import ip_address
 
 import pytest  # type: ignore[reportMissingImports]
 
+from redforge.adapters.subfinder import SubdomainDiscoveryResult
 from redforge.capabilities.asset_intelligence import AssetIntelligenceCapability
 from redforge.domain.asset_intelligence import AssetIntelligence
 from redforge.domain.endpoint import Endpoint
@@ -35,7 +36,9 @@ def test_execute_builds_assets_and_correlates_technologies() -> None:
     context = Context(
         target_id="example.com",
         state={
-            PipelineStateKey.SUBDOMAINS: {"subdomains": ["www.example.com.", "blog.example.com"]},
+            PipelineStateKey.SUBDOMAINS: SubdomainDiscoveryResult(
+                hostnames=("www.example.com.", "blog.example.com")
+            ),
             PipelineStateKey.ALIVE_HOSTS: [host],
             PipelineStateKey.HOSTS: [host],
             PipelineStateKey.ENDPOINTS: [endpoint],
@@ -158,7 +161,9 @@ def test_identifiers_and_aliases_are_independent_of_input_order() -> None:
         context = Context(
             target_id="example.com",
             state={
-                PipelineStateKey.SUBDOMAINS: subdomains,
+                PipelineStateKey.SUBDOMAINS: SubdomainDiscoveryResult(
+                    hostnames=tuple(subdomains)
+                ),
                 PipelineStateKey.ALIVE_HOSTS: hosts,
                 PipelineStateKey.ENDPOINTS: endpoints,
             },

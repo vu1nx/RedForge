@@ -105,7 +105,7 @@ def test_search_cpe_candidates_handles_empty_response() -> None:
             "unknown", "1.0"
         )
 
-    assert candidates == []
+    assert candidates == ()
 
 
 def test_pagination_collects_and_orders_all_pages() -> None:
@@ -190,7 +190,7 @@ def test_malformed_cpe_entries_are_ignored() -> None:
             "product", "1.0"
         )
 
-    assert candidates == []
+    assert candidates == ()
 
 
 def test_get_vulnerabilities_prefers_cvss4_and_falls_back_to_cvss31() -> None:
@@ -321,7 +321,7 @@ def test_retry_after_is_honored_before_retry() -> None:
             NvdAdapter(max_retries=1, request_interval_seconds=0).search_cpe_candidates(
                 "nginx", "1.0"
             )
-            == []
+            == ()
         )
 
     sleep.assert_called_once_with(2.0)

@@ -5,11 +5,12 @@ from ipaddress import ip_address
 from typing import Any, cast
 from urllib.parse import urlsplit
 
+from redforge.adapters.subfinder import SubdomainDiscoveryResult
 from redforge.domain.asset import Asset
 from redforge.domain.asset_association import AssetAssociation
 from redforge.domain.asset_intelligence import AssetIntelligence
 from redforge.domain.endpoint import Endpoint
-from redforge.domain.host import Host
+from redforge.domain.host import Host, HostResolution
 from redforge.domain.technology import Technology
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
@@ -71,7 +72,12 @@ class AssetIntelligenceCapability(Capability):
     def execute(self, context: Context) -> Result[AssetIntelligence]:
         """Correlate pipeline knowledge into the Asset Intelligence read model."""
         subdomains = self._get_subdomains(context.state)
-        discovered_hosts = self._get_typed_list(context.state, PipelineStateKey.HOSTS, Host)
+        resolution = context.state.get(PipelineStateKey.HOSTS)
+        discovered_hosts = (
+            list(resolution.hosts)
+            if isinstance(resolution, HostResolution)
+            else self._get_typed_list(context.state, PipelineStateKey.HOSTS, Host)
+        )
         alive_hosts = self._get_typed_list(context.state, PipelineStateKey.ALIVE_HOSTS, Host)
         hosts = list(dict.fromkeys([*discovered_hosts, *alive_hosts]))
         endpoints = self._get_typed_list(context.state, PipelineStateKey.ENDPOINTS, Endpoint)
@@ -110,7 +116,10 @@ class AssetIntelligenceCapability(Capability):
         index = _IdentityIndex()
 
         for host in hosts:
-            aliases = {self._normalize_alias(str(host.address))}
+            aliases = {
+                self._normalize_alias(address.value)
+                for address in host.addresses
+            }
             if host.hostname:
                 aliases.add(self._normalize_alias(host.hostname))
             builder = index.add(aliases)
@@ -149,7 +158,10 @@ class AssetIntelligenceCapability(Capability):
                 hosts=tuple(
                     sorted(
                         builder.hosts,
-                        key=lambda host: (str(host.address), host.hostname or ""),
+                        key=lambda host: (
+                            tuple(address.value for address in host.addresses),
+                            host.hostname or "",
+                        ),
                     )
                 ),
                 endpoints=tuple(
@@ -210,8 +222,8 @@ class AssetIntelligenceCapability(Capability):
 
     def _get_subdomains(self, state: dict[str, Any]) -> list[str]:  # type: ignore[reportUnknownParameterType]
         value = state.get(PipelineStateKey.SUBDOMAINS, [])
-        if isinstance(value, dict):
-            value = cast(dict[str, Any], value).get("subdomains", [])
+        if isinstance(value, SubdomainDiscoveryResult):
+            return list(value.hostnames)
         if not isinstance(value, list):
             return []
         return [

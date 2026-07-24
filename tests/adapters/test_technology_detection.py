@@ -174,8 +174,8 @@ def test_missing_fields_are_handled_safely() -> None:
     assert technologies[0].confidence == 100
 
 
-def test_command_failure_preserves_diagnostics() -> None:
-    """A non-zero WhatWeb exit becomes a meaningful adapter exception."""
+def test_command_failure_sanitizes_external_diagnostics() -> None:
+    """A non-zero WhatWeb exit becomes a sanitized adapter exception."""
     error = subprocess.CalledProcessError(
         2, ["whatweb"], stderr="invalid target input"
     )
@@ -188,8 +188,7 @@ def test_command_failure_preserves_diagnostics() -> None:
         TechnologyDetectionAdapter().detect_technologies(["https://example.com"])
 
     assert exc_info.value.returncode == 2
-    assert exc_info.value.stderr == "invalid target input"
-    assert "invalid target input" in str(exc_info.value)
+    assert "invalid target input" not in str(exc_info.value)
 
 
 def test_timeout_becomes_execution_error() -> None:
@@ -199,7 +198,7 @@ def test_timeout_becomes_execution_error() -> None:
     with (
         patch("shutil.which", return_value="/usr/bin/whatweb"),
         patch("subprocess.run", side_effect=timeout),
-        pytest.raises(TechnologyDetectionExecutionError, match="timed out"),
+        pytest.raises(TechnologyDetectionExecutionError, match="execution failed"),
     ):
         TechnologyDetectionAdapter(timeout_seconds=5).detect_technologies(
             ["https://example.com"]

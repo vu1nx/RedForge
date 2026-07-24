@@ -1,8 +1,13 @@
 """Web crawling capability using Katana."""
 
-from typing import Any
+from typing import Any, cast
 
-from redforge.adapters.katana import KatanaAdapter, KatanaAdapterError
+from redforge.adapters.errors import AdapterError
+from redforge.adapters.katana import (
+    KatanaAdapter,
+    WebCrawlAdapterResult,
+    WebCrawler,
+)
 from redforge.domain.endpoint import Endpoint
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
@@ -18,13 +23,18 @@ class WebCrawlCapability(Capability):
 
     _ALIVE_HOSTS_STATE_KEY = "alive_hosts"
 
-    def __init__(self, binary_path: str = "katana") -> None:
+    def __init__(
+        self,
+        binary_path: str = "katana",
+        *,
+        crawler: WebCrawler | None = None,
+    ) -> None:
         """Initialize the web crawl capability.
 
         Args:
             binary_path: Path to the Katana binary (default: "katana").
         """
-        self._adapter = KatanaAdapter(binary_path=binary_path)
+        self._crawler = crawler or KatanaAdapter(binary_path=binary_path)
 
     def execute(self, context: Context) -> Result[list[Endpoint]]:
         """Execute web crawling against alive hosts from pipeline state.
@@ -41,10 +51,39 @@ class WebCrawlCapability(Capability):
             return Result(status=Status.SUCCESS, data=[])
 
         try:
-            endpoints = self._adapter.crawl_hosts(hosts)
-            return Result(status=Status.SUCCESS, data=endpoints)
-        except KatanaAdapterError as e:
-            return Result(status=Status.ERROR, data=[], errors=[str(e)])
+            response = cast(object, self._crawler.crawl(tuple(hosts)))
+        except AdapterError:
+            return Result(
+                status=Status.FAILURE,
+                data=[],
+                errors=["Web crawler is unavailable or returned an invalid response"],
+            )
+        except Exception:
+            return Result(
+                status=Status.ERROR,
+                data=[],
+                errors=["Web crawler failed with an unexpected execution error"],
+            )
+        if not isinstance(response, WebCrawlAdapterResult):
+            return Result(
+                status=Status.ERROR,
+                data=[],
+                errors=["Web crawler returned an invalid result"],
+            )
+        response_endpoints = cast(object, response.endpoints)
+        if not isinstance(response_endpoints, tuple) or not all(
+            isinstance(item, Endpoint)
+            for item in cast(tuple[object, ...], response_endpoints)
+        ):
+            return Result(
+                status=Status.ERROR,
+                data=[],
+                errors=["Web crawler returned an invalid result"],
+            )
+        return Result(
+            status=Status.SUCCESS,
+            data=list(cast(tuple[Endpoint, ...], response_endpoints)),
+        )
 
     def _get_hosts_from_state(self, state: dict[str, Any]) -> list[str]:  # type: ignore[reportUnknownParameterType]
         alive_hosts = state.get(self._ALIVE_HOSTS_STATE_KEY, [])

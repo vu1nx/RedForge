@@ -1,0 +1,132 @@
+{
+  "resultsPerPage": 4,
+  "startIndex": 0,
+  "totalResults": 4,
+  "format": "NVD_CVE",
+  "version": "2.0",
+  "timestamp": "2026-07-24T10:00:00.000",
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2026-0001",
+        "sourceIdentifier": "security@example.org",
+        "published": "2026-01-02T03:04:05.000",
+        "lastModified": "2026-01-03T04:05:06.000",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Example vulnerability with CVSS version 4 metadata."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV40": [
+            {
+              "source": "security@example.org",
+              "type": "Primary",
+              "cvssData": {
+                "version": "4.0",
+                "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+                "baseScore": 9.3,
+                "baseSeverity": "CRITICAL"
+              }
+            }
+          ],
+          "cvssMetricV31": [
+            {
+              "source": "nvd@nist.gov",
+              "type": "Secondary",
+              "cvssData": {
+                "version": "3.1",
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                "baseScore": 9.8,
+                "baseSeverity": "CRITICAL"
+              }
+            }
+          ]
+        },
+        "weaknesses": [
+          {
+            "source": "security@example.org",
+            "type": "Primary",
+            "description": [
+              {
+                "lang": "en",
+                "value": "CWE-787"
+              }
+            ]
+          }
+        ],
+        "references": [
+          {
+            "url": "https://example.org/advisories/CVE-2026-0001",
+            "source": "security@example.org"
+          }
+        ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2025-0002",
+        "sourceIdentifier": "nvd@nist.gov",
+        "published": "2025-02-01T00:00:00.000",
+        "lastModified": "2025-02-02T00:00:00.000",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Example vulnerability with CVSS version 3.1 metadata."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "source": "nvd@nist.gov",
+              "type": "Primary",
+              "cvssData": {
+                "version": "3.1",
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+                "baseScore": 8.1,
+                "baseSeverity": "HIGH"
+              }
+            }
+          ]
+        },
+        "weaknesses": [],
+        "references": []
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2024-0003",
+        "sourceIdentifier": "nvd@nist.gov",
+        "published": "2024-03-01T00:00:00.000",
+        "lastModified": "2024-03-02T00:00:00.000",
+        "vulnStatus": "Awaiting Analysis",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Example vulnerability without CVSS metadata."
+          }
+        ],
+        "references": []
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2023-0004",
+        "sourceIdentifier": "nvd@nist.gov",
+        "published": "2023-04-01T00:00:00.000",
+        "lastModified": "2023-04-02T00:00:00.000",
+        "vulnStatus": "Rejected",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "** REJECT ** This candidate was withdrawn."
+          }
+        ],
+        "references": []
+      }
+    }
+  ]
+}

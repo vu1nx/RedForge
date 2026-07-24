@@ -10,6 +10,7 @@ class PipelineStateKey:
     ENDPOINTS = "endpoints"
     TECHNOLOGIES = "technologies"
     ASSET_INTELLIGENCE = "asset_intelligence"
+    VULNERABILITY_INTELLIGENCE = "vulnerability_intelligence"
 
 
 CAPABILITY_OUTPUT_KEYS: dict[str, str] = {
@@ -18,4 +19,5 @@ CAPABILITY_OUTPUT_KEYS: dict[str, str] = {
     "web_crawl": PipelineStateKey.ENDPOINTS,
     "technology_detection": PipelineStateKey.TECHNOLOGIES,
     "asset_intelligence": PipelineStateKey.ASSET_INTELLIGENCE,
+    "vulnerability_intelligence": PipelineStateKey.VULNERABILITY_INTELLIGENCE,
 }

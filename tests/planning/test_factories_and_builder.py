@@ -23,7 +23,7 @@ from redforge.runtime.pipeline_state import (
 )
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
-from redforge.sdk.result import Result, Status
+from redforge.sdk.result import Result, StatePublication, Status
 
 
 class FakeCapability(Capability):
@@ -47,6 +47,29 @@ class FakeCapability(Capability):
         if self._calls is not None:
             self._calls.append(self.name)
         return Result(status=Status.SUCCESS, data=self._data)
+
+
+class MultiOutputCapability(Capability):
+    """Publish two declared state values from one execution."""
+
+    def __init__(self, instances: list["MultiOutputCapability"]) -> None:
+        self.execute_calls = 0
+        instances.append(self)
+
+    @property
+    def name(self) -> str:
+        return "multi"
+
+    def execute(self, context: Context) -> Result[None]:  # noqa: ARG002
+        self.execute_calls += 1
+        return Result(
+            status=Status.SUCCESS,
+            data=None,
+            publications=(
+                StatePublication(PipelineStateKey.HOSTS, ("host",)),
+                StatePublication(PipelineStateKey.SUBDOMAINS, ("a.example",)),
+            ),
+        )
 
 
 def _chain_registry() -> CapabilityRegistry:
@@ -76,9 +99,7 @@ def _chain_registry() -> CapabilityRegistry:
 
 def _chain_plan() -> tuple[CapabilityRegistry, object]:
     registry = _chain_registry()
-    plan = ExecutionPlanner(registry).plan(
-        goals=(PipelineStateKey.ALIVE_HOSTS,)
-    )
+    plan = ExecutionPlanner(registry).plan(goals=(PipelineStateKey.ALIVE_HOSTS,))
     return registry, plan
 
 
@@ -237,15 +258,11 @@ def test_every_default_descriptor_factory_and_runtime_mapping_align() -> None:
     descriptors = create_default_registry()
     factories = create_default_factory_registry()
 
-    assert factories.names == tuple(
-        descriptor.name for descriptor in descriptors.descriptors
-    )
+    assert factories.names == tuple(descriptor.name for descriptor in descriptors.descriptors)
     for descriptor in descriptors.descriptors:
         capability = factories.create(descriptor.name)
         assert capability.name == descriptor.name
-        assert descriptor.provides == (
-            CAPABILITY_OUTPUT_KEYS[descriptor.name],
-        )
+        assert descriptor.provides == (CAPABILITY_OUTPUT_KEYS[descriptor.name],)
 
 
 def test_repeated_builds_create_distinct_capability_instances() -> None:
@@ -277,3 +294,36 @@ def test_repeated_builds_create_distinct_capability_instances() -> None:
     assert first is not second
     assert len(created) == 2
     assert created[0] is not created[1]
+
+
+def test_builder_accepts_multi_output_descriptor_and_builds_fresh_instances() -> None:
+    descriptors = CapabilityRegistry()
+    descriptors.register(
+        CapabilityDescriptor(
+            name="multi",
+            provides=(
+                PipelineStateKey.SUBDOMAINS,
+                PipelineStateKey.HOSTS,
+            ),
+        )
+    )
+    instances: list[MultiOutputCapability] = []
+    factories = CapabilityFactoryRegistry()
+    factories.register("multi", lambda: MultiOutputCapability(instances))
+    builder = PipelineBuilder(
+        descriptor_registry=descriptors,
+        factory_registry=factories,
+    )
+    plan = ExecutionPlanner(descriptors).plan(
+        goals=(PipelineStateKey.HOSTS, PipelineStateKey.SUBDOMAINS)
+    )
+
+    first = builder.build(plan).run("example.com")
+    second = builder.build(plan).run("example.com")
+
+    assert len(instances) == 2
+    assert instances[0] is not instances[1]
+    assert instances[0].execute_calls == instances[1].execute_calls == 1
+    assert first.executed_capabilities == second.executed_capabilities == ("multi",)
+    assert first.context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert first.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)

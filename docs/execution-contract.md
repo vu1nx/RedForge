@@ -29,11 +29,17 @@ capability that actually executed and is not used as aggregate pipeline status.
 
 State publication follows the usability contract:
 
-- `SUCCESS` and `PARTIAL` data are published under the capability's mapped state
-  key;
+- `SUCCESS` and `PARTIAL` publish every validated explicit state publication,
+  or one normalized legacy data value for a single-output contract;
 - `FAILURE` and `ERROR` data remain available in execution history but are not
   published;
 - previously published state remains intact when execution stops.
+
+Publication validation is atomic. Duplicate keys, undeclared keys, malformed
+collections, ambiguous legacy data for a multi-output contract, and conflicting
+explicit/legacy output become sanitized `ERROR` results without changing
+Context. One capability execution still creates one history entry regardless
+of publication count. See [State Publication](state-publication.md).
 
 ## Defensive boundary
 

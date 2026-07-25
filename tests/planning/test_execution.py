@@ -24,7 +24,7 @@ from redforge.planning import (
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
-from redforge.sdk.result import Result, Status
+from redforge.sdk.result import Result, StatePublication, Status
 
 
 class FakeResolver:
@@ -45,16 +45,15 @@ class FakeCrawler:
     """Return one deterministic endpoint without invoking a binary."""
 
     def crawl(self, hosts: tuple[str, ...]) -> WebCrawlAdapterResult:  # noqa: ARG002
-        return WebCrawlAdapterResult(
-            endpoints=(Endpoint("app.example.com", 443, "https", "/"),)
-        )
+        return WebCrawlAdapterResult(endpoints=(Endpoint("app.example.com", 443, "https", "/"),))
 
 
 class FakeDetector:
     """Return one deterministic technology without invoking a binary."""
 
     def detect(
-        self, endpoints: tuple[str, ...]  # noqa: ARG002
+        self,
+        endpoints: tuple[str, ...],  # noqa: ARG002
     ) -> TechnologyDetectionResult:
         return TechnologyDetectionResult(
             technologies=(
@@ -71,8 +70,12 @@ class EmptyVulnerabilityProvider:
     """Typed provider whose empty results avoid all network access."""
 
     def search_cpe_candidates(
-        self, name: str, version: str, vendor: str | None = None  # noqa: ARG002
+        self,
+        name: str,
+        version: str,
+        vendor: str | None = None,
     ) -> tuple[()]:
+        del name, version, vendor
         return ()
 
     def get_vulnerabilities(self, cpe_name: str) -> tuple[()]:  # noqa: ARG002
@@ -101,6 +104,28 @@ class ResultCapability(Capability):
         return self._result
 
 
+class PlannedMultiOutputCapability(Capability):
+    """One planned capability that explicitly publishes two states."""
+
+    def __init__(self, calls: list[str]) -> None:
+        self._calls = calls
+
+    @property
+    def name(self) -> str:
+        return "multi"
+
+    def execute(self, context: Context) -> Result[None]:  # noqa: ARG002
+        self._calls.append(self.name)
+        return Result(
+            status=Status.SUCCESS,
+            data=None,
+            publications=(
+                StatePublication(PipelineStateKey.HOSTS, ("host",)),
+                StatePublication(PipelineStateKey.SUBDOMAINS, ("a.example",)),
+            ),
+        )
+
+
 def _default_execution() -> PlannedExecution:
     return create_default_planned_execution(
         dependencies=CapabilityDependencies(
@@ -117,9 +142,7 @@ def _subdomain_context() -> Context:
     return Context(
         target_id="example.com",
         state={
-            PipelineStateKey.SUBDOMAINS: SubdomainDiscoveryResult(
-                hostnames=("app.example.com",)
-            )
+            PipelineStateKey.SUBDOMAINS: SubdomainDiscoveryResult(hostnames=("app.example.com",))
         },
     )
 
@@ -381,3 +404,42 @@ def test_reusing_facade_does_not_retain_state_or_history() -> None:
     assert results[1].context is contexts[1]
     assert results[0].executions is not results[1].executions
     assert results[0].executed_capabilities == results[1].executed_capabilities
+
+
+def test_planned_execution_publishes_multiple_goals_from_one_step() -> None:
+    descriptors = CapabilityRegistry()
+    descriptors.register(
+        CapabilityDescriptor(
+            name="multi",
+            provides=(
+                PipelineStateKey.HOSTS,
+                PipelineStateKey.SUBDOMAINS,
+            ),
+        )
+    )
+    calls: list[str] = []
+    factories = CapabilityFactoryRegistry()
+    factories.register("multi", lambda: PlannedMultiOutputCapability(calls))
+    execution = PlannedExecution(
+        planner=ExecutionPlanner(descriptors),
+        builder=PipelineBuilder(
+            descriptor_registry=descriptors,
+            factory_registry=factories,
+        ),
+    )
+    context = Context(target_id="example.com")
+    plan = execution.plan(
+        goals=(PipelineStateKey.HOSTS, PipelineStateKey.SUBDOMAINS),
+        context=context,
+    )
+    original_plan = plan
+
+    result = execution.execute(plan=plan, context=context)
+
+    assert plan.required_capabilities == ("multi",)
+    assert plan == original_plan
+    assert calls == ["multi"]
+    assert result.status == Status.SUCCESS
+    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert result.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
+    assert len(result.executions) == 1

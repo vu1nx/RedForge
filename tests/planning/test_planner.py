@@ -48,9 +48,11 @@ def _dag_registry() -> CapabilityRegistry:
 
 
 def _names(goals: Iterable[str], available: Iterable[str] = ()) -> tuple[str, ...]:
-    return ExecutionPlanner(_dag_registry()).plan(
-        goals=goals, available_state=available
-    ).required_capabilities
+    return (
+        ExecutionPlanner(_dag_registry())
+        .plan(goals=goals, available_state=available)
+        .required_capabilities
+    )
 
 
 def test_shared_dependency_and_multi_input_topological_order() -> None:
@@ -76,11 +78,14 @@ def test_goal_and_input_order_do_not_change_plan_equality() -> None:
         available_state=(PipelineStateKey.HOSTS,),
     )
     second = planner.plan(
-        goals=(item for item in (
-            PipelineStateKey.ENDPOINTS,
-            PipelineStateKey.TECHNOLOGIES,
-            PipelineStateKey.ENDPOINTS,
-        )),
+        goals=(
+            item
+            for item in (
+                PipelineStateKey.ENDPOINTS,
+                PipelineStateKey.TECHNOLOGIES,
+                PipelineStateKey.ENDPOINTS,
+            )
+        ),
         available_state={
             PipelineStateKey.HOSTS,
             PipelineStateKey.HOSTS,
@@ -125,11 +130,30 @@ def test_one_capability_with_multiple_outputs_appears_once() -> None:
     assert plan.required_capabilities == ("multi",)
 
 
+def test_multi_output_producer_precedes_consumer_of_second_output() -> None:
+    registry = _registry(
+        CapabilityDescriptor(
+            "multi",
+            provides=(
+                PipelineStateKey.HOSTS,
+                PipelineStateKey.SUBDOMAINS,
+            ),
+        ),
+        CapabilityDescriptor(
+            "dependent",
+            requires=(PipelineStateKey.SUBDOMAINS,),
+            provides=(PipelineStateKey.ALIVE_HOSTS,),
+        ),
+    )
+
+    plan = ExecutionPlanner(registry).plan(goals=(PipelineStateKey.ALIVE_HOSTS,))
+
+    assert plan.required_capabilities == ("multi", "dependent")
+
+
 def test_missing_goal_and_transitive_producers_fail() -> None:
     with pytest.raises(MissingProducerError) as goal_error:
-        ExecutionPlanner(CapabilityRegistry()).plan(
-            goals=(PipelineStateKey.HOSTS,)
-        )
+        ExecutionPlanner(CapabilityRegistry()).plan(goals=(PipelineStateKey.HOSTS,))
     assert goal_error.value.state_key == PipelineStateKey.HOSTS
 
     registry = _registry(
@@ -209,9 +233,7 @@ def test_cycles_are_reported_with_deterministic_paths(
     expected: tuple[str, ...],
 ) -> None:
     with pytest.raises(DependencyCycleError) as error:
-        ExecutionPlanner(_registry(*descriptors)).plan(
-            goals=(PipelineStateKey.HOSTS,)
-        )
+        ExecutionPlanner(_registry(*descriptors)).plan(goals=(PipelineStateKey.HOSTS,))
     assert error.value.cycle_path == expected
 
 

@@ -31,7 +31,7 @@ from redforge.runtime.pipeline import (
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
-from redforge.sdk.result import Result, Status
+from redforge.sdk.result import Result, StatePublication, Status
 
 
 class MockCapability(Capability):
@@ -61,6 +61,30 @@ class RaisingCapability(Capability):
     def execute(self, context: Context) -> Result[Any]:  # noqa: ARG002
         self.execute_calls += 1
         raise RuntimeError("secret-token C:\\private\\path")
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+
+class PrerequisiteCapability(Capability):
+    """Capability that records whether one published state key is present."""
+
+    def __init__(
+        self,
+        name: str,
+        required: PipelineStateKey,
+        calls: list[str],
+    ) -> None:
+        self._name = name
+        self._required = required
+        self._calls = calls
+
+    def execute(self, context: Context) -> Result[None]:
+        self._calls.append(self.name)
+        if not context.has(self._required):
+            return Result(status=Status.FAILURE, data=None)
+        return Result(status=Status.SUCCESS, data=None)
 
     @property
     def name(self) -> str:
@@ -114,9 +138,7 @@ _RANK = {
     ("current", "observed"),
     list(product(Status, repeat=2)),
 )
-def test_combine_status_is_exhaustive_and_deterministic(
-    current: Status, observed: Status
-) -> None:
+def test_combine_status_is_exhaustive_and_deterministic(current: Status, observed: Status) -> None:
     expected = current if _RANK[current] >= _RANK[observed] else observed
     assert combine_status(current, observed) == expected
 
@@ -265,9 +287,7 @@ def test_invalid_capability_return_is_sanitized_error(invalid: object) -> None:
     assert last_result.data is None
     assert result.context.state == {}
     assert skipped.execute_calls == []
-    assert last_result.errors == [
-        "Capability 'invalid' returned an invalid result"
-    ]
+    assert last_result.errors == ["Capability 'invalid' returned an invalid result"]
 
 
 def test_duplicate_capability_names_are_rejected() -> None:
@@ -299,8 +319,7 @@ def test_known_capability_output_mappings_continue_to_work() -> None:
         ),
     }
     capabilities = [
-        MockCapability(name, _result(Status.SUCCESS, data))
-        for name, (_, data) in outputs.items()
+        MockCapability(name, _result(Status.SUCCESS, data)) for name, (_, data) in outputs.items()
     ]
 
     result = _run(*capabilities)
@@ -310,9 +329,7 @@ def test_known_capability_output_mappings_continue_to_work() -> None:
 
 
 def test_host_resolution_success_is_stored_with_history() -> None:
-    resolution = HostResolutionCapability(
-        PipelineResolver({"example.com": ("192.0.2.1",)})
-    )
+    resolution = HostResolutionCapability(PipelineResolver({"example.com": ("192.0.2.1",)}))
     result = _run(
         MockCapability(
             "subdomain_discovery",
@@ -348,9 +365,7 @@ def test_host_resolution_partial_propagates_and_continues() -> None:
             "subdomain_discovery",
             _result(
                 Status.SUCCESS,
-                SubdomainDiscoveryResult(
-                    hostnames=("good.example", "missing.example")
-                ),
+                SubdomainDiscoveryResult(hostnames=("good.example", "missing.example")),
             ),
         ),
         resolution,
@@ -455,3 +470,266 @@ def test_risk_intelligence_wrong_graph_type_becomes_pipeline_error() -> None:
     assert result.last_result is not None
     assert result.last_result.status == Status.ERROR
     assert PipelineStateKey.RISK_INTELLIGENCE not in result.context.state
+
+
+@pytest.mark.parametrize("status", [Status.SUCCESS, Status.PARTIAL])
+def test_explicit_multi_output_is_atomic_and_executes_downstream_once(
+    status: Status,
+) -> None:
+    calls: list[str] = []
+    multi_result = Result[None](
+        status=status,
+        data=None,
+        publications=(
+            StatePublication(PipelineStateKey.SUBDOMAINS, ("a.example",)),
+            StatePublication(PipelineStateKey.HOSTS, ("host",)),
+        ),
+    )
+    pipeline = Pipeline(
+        output_contracts={
+            "multi": (
+                PipelineStateKey.HOSTS,
+                PipelineStateKey.SUBDOMAINS,
+            )
+        }
+    )
+    pipeline.add(MockCapability("multi", multi_result))
+    pipeline.add(
+        PrerequisiteCapability(
+            "needs_subdomains",
+            PipelineStateKey.SUBDOMAINS,
+            calls,
+        )
+    )
+    pipeline.add(PrerequisiteCapability("needs_hosts", PipelineStateKey.HOSTS, calls))
+
+    result = pipeline.run("example.com")
+
+    assert result.status == status
+    assert result.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
+    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert calls == ["needs_subdomains", "needs_hosts"]
+    assert result.executed_capabilities == (
+        "multi",
+        "needs_subdomains",
+        "needs_hosts",
+    )
+    assert len(result.executions) == 3
+    assert result.executions[0].result is multi_result
+    assert result.last_result is result.executions[-1].result
+
+
+def test_partial_explicit_subset_does_not_create_missing_state() -> None:
+    pipeline = Pipeline(
+        output_contracts={
+            "multi": (
+                PipelineStateKey.ALIVE_HOSTS,
+                PipelineStateKey.HOSTS,
+                PipelineStateKey.SUBDOMAINS,
+            )
+        }
+    )
+    pipeline.add(
+        MockCapability(
+            "multi",
+            Result[None](
+                status=Status.PARTIAL,
+                data=None,
+                publications=(
+                    StatePublication(PipelineStateKey.HOSTS, ()),
+                    StatePublication(PipelineStateKey.SUBDOMAINS, ()),
+                ),
+            ),
+        )
+    )
+
+    result = pipeline.run("example.com")
+
+    assert result.status == Status.PARTIAL
+    assert result.context.has(PipelineStateKey.HOSTS)
+    assert result.context.has(PipelineStateKey.SUBDOMAINS)
+    assert not result.context.has(PipelineStateKey.ALIVE_HOSTS)
+
+
+def test_downstream_missing_subset_prerequisite_uses_normal_failure_policy() -> None:
+    calls: list[str] = []
+    pipeline = Pipeline(
+        output_contracts={
+            "multi": (
+                PipelineStateKey.ALIVE_HOSTS,
+                PipelineStateKey.HOSTS,
+            )
+        }
+    )
+    pipeline.add(
+        MockCapability(
+            "multi",
+            Result[None](
+                status=Status.PARTIAL,
+                data=None,
+                publications=(StatePublication(PipelineStateKey.HOSTS, ("host",)),),
+            ),
+        )
+    )
+    pipeline.add(
+        PrerequisiteCapability(
+            "needs_alive_hosts",
+            PipelineStateKey.ALIVE_HOSTS,
+            calls,
+        )
+    )
+
+    result = pipeline.run("example.com")
+
+    assert calls == ["needs_alive_hosts"]
+    assert result.status == Status.FAILURE
+    assert result.executed_capabilities == ("multi", "needs_alive_hosts")
+    assert result.context.has(PipelineStateKey.HOSTS)
+    assert not result.context.has(PipelineStateKey.ALIVE_HOSTS)
+
+
+@pytest.mark.parametrize("status", [Status.FAILURE, Status.ERROR])
+def test_stopping_result_with_explicit_publications_is_invalid(
+    status: Status,
+) -> None:
+    invalid = Result[None](
+        status=status,
+        data=None,
+        publications=(StatePublication(PipelineStateKey.HOSTS, ("secret-value",)),),
+    )
+    downstream = MockCapability("downstream", Result(status=Status.SUCCESS, data="unused"))
+    pipeline = Pipeline(output_contracts={"invalid": (PipelineStateKey.HOSTS,)})
+    pipeline.add(MockCapability("invalid", invalid))
+    pipeline.add(downstream)
+
+    result = pipeline.run(Context(target_id="example.com", state={"prior": "preserved"}))
+
+    assert result.status == Status.ERROR
+    assert result.last_result is not None
+    assert result.last_result.status == Status.ERROR
+    assert result.context.state == {"prior": "preserved"}
+    assert downstream.execute_calls == []
+    assert "secret-value" not in repr(result.last_result)
+
+
+def test_duplicate_explicit_publications_are_rejected_atomically() -> None:
+    invalid = Result[None](status=Status.SUCCESS, data=None)
+    object.__setattr__(
+        invalid,
+        "publications",
+        (
+            StatePublication(PipelineStateKey.HOSTS, "first-secret"),
+            StatePublication(PipelineStateKey.HOSTS, "second-secret"),
+            StatePublication(PipelineStateKey.SUBDOMAINS, "third-secret"),
+        ),
+    )
+    pipeline = Pipeline(
+        output_contracts={
+            "invalid": (
+                PipelineStateKey.HOSTS,
+                PipelineStateKey.SUBDOMAINS,
+            )
+        }
+    )
+    pipeline.add(MockCapability("invalid", invalid))
+    context = Context(target_id="example.com", state={"prior": "preserved"})
+
+    result = pipeline.run(context)
+
+    assert result.status == Status.ERROR
+    assert result.context.state == {"prior": "preserved"}
+    assert len(result.executions) == 1
+    assert "secret" not in repr(result.last_result)
+
+
+def test_undeclared_explicit_publication_is_rejected_atomically() -> None:
+    pipeline = Pipeline(output_contracts={"invalid": (PipelineStateKey.HOSTS,)})
+    pipeline.add(
+        MockCapability(
+            "invalid",
+            Result[None](
+                status=Status.SUCCESS,
+                data=None,
+                publications=(
+                    StatePublication(PipelineStateKey.HOSTS, "host-secret"),
+                    StatePublication(PipelineStateKey.SUBDOMAINS, "subdomain-secret"),
+                ),
+            ),
+        )
+    )
+    context = Context(target_id="example.com", state={"prior": "preserved"})
+
+    result = pipeline.run(context)
+
+    assert result.status == Status.ERROR
+    assert result.context.state == {"prior": "preserved"}
+    assert "secret" not in repr(result.last_result)
+
+
+def test_legacy_data_for_multi_output_contract_fails_safely() -> None:
+    pipeline = Pipeline(
+        output_contracts={
+            "legacy": (
+                PipelineStateKey.HOSTS,
+                PipelineStateKey.SUBDOMAINS,
+            )
+        }
+    )
+    pipeline.add(
+        MockCapability(
+            "legacy",
+            Result(status=Status.SUCCESS, data="ambiguous-secret"),
+        )
+    )
+
+    result = pipeline.run("example.com")
+
+    assert result.status == Status.ERROR
+    assert result.context.state == {}
+    assert "ambiguous-secret" not in repr(result.last_result)
+
+
+def test_legacy_output_keys_constructor_remains_supported() -> None:
+    pipeline = Pipeline(output_keys={"legacy": PipelineStateKey.HOSTS})
+    pipeline.add(
+        MockCapability(
+            "legacy",
+            Result(status=Status.SUCCESS, data=("host",)),
+        )
+    )
+
+    result = pipeline.run("example.com")
+
+    assert result.status == Status.SUCCESS
+    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
+
+
+def test_explicit_single_output_works_and_conflicting_data_fails() -> None:
+    explicit = Pipeline(output_contracts={"explicit": (PipelineStateKey.HOSTS,)})
+    explicit.add(
+        MockCapability(
+            "explicit",
+            Result[None](
+                status=Status.SUCCESS,
+                data=None,
+                publications=(StatePublication(PipelineStateKey.HOSTS, ("host",)),),
+            ),
+        )
+    )
+    assert explicit.run("example.com").context.get(PipelineStateKey.HOSTS) == ("host",)
+
+    conflict = Pipeline(output_contracts={"conflict": (PipelineStateKey.HOSTS,)})
+    conflict.add(
+        MockCapability(
+            "conflict",
+            Result(
+                status=Status.SUCCESS,
+                data="legacy-secret",
+                publications=(StatePublication(PipelineStateKey.HOSTS, ("explicit",)),),
+            ),
+        )
+    )
+    result = conflict.run("example.com")
+    assert result.status == Status.ERROR
+    assert result.context.state == {}
+    assert "secret" not in repr(result.last_result)

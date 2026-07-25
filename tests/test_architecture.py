@@ -40,9 +40,9 @@ def test_capabilities_do_not_import_transport_libraries_or_socket() -> None:
 
 
 def test_vulnerability_capability_does_not_reference_nvd_payload_keys() -> None:
-    source = (
-        _SOURCE_ROOT / "capabilities" / "vulnerability_intelligence.py"
-    ).read_text(encoding="utf-8")
+    source = (_SOURCE_ROOT / "capabilities" / "vulnerability_intelligence.py").read_text(
+        encoding="utf-8"
+    )
     for provider_key in (
         "vulnerabilities",
         "startIndex",
@@ -100,9 +100,7 @@ def test_builder_has_no_external_transports_or_capability_name_branching() -> No
     imports = _imports(path)
     forbidden = ("socket", "subprocess", "urllib", "httpx", "requests")
     assert not any(
-        name == prefix or name.startswith(f"{prefix}.")
-        for name in imports
-        for prefix in forbidden
+        name == prefix or name.startswith(f"{prefix}.") for name in imports for prefix in forbidden
     )
     source = path.read_text(encoding="utf-8")
     assert "if step.capability_name ==" not in source
@@ -117,14 +115,10 @@ def test_descriptor_and_factory_registries_remain_separate() -> None:
     )
 
     descriptor_registry = CapabilityRegistry()
-    descriptor_registry.register(
-        CapabilityDescriptor(name="a", provides=("hosts",))
-    )
+    descriptor_registry.register(CapabilityDescriptor(name="a", provides=("hosts",)))
     factory_registry = CapabilityFactoryRegistry()
 
-    assert descriptor_registry.descriptors == (
-        CapabilityDescriptor(name="a", provides=("hosts",)),
-    )
+    assert descriptor_registry.descriptors == (CapabilityDescriptor(name="a", provides=("hosts",)),)
     assert factory_registry.names == ()
     assert not hasattr(descriptor_registry, "create")
     assert not hasattr(factory_registry, "descriptors")
@@ -173,3 +167,60 @@ def test_execution_facade_does_not_invoke_capabilities_directly() -> None:
     source = path.read_text(encoding="utf-8")
     assert ".execute(context)" not in source
     assert ".run(context)" in source
+
+
+def test_publication_model_has_no_adapter_or_network_dependencies() -> None:
+    path = _SOURCE_ROOT / "sdk" / "result.py"
+    imports = _imports(path)
+    forbidden = (
+        "redforge.adapters",
+        "redforge.planning",
+        "socket",
+        "subprocess",
+        "urllib",
+        "httpx",
+        "requests",
+    )
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.") for name in imports for prefix in forbidden
+    )
+
+
+def test_context_does_not_import_planning_or_runtime_pipeline() -> None:
+    imports = _imports(_SOURCE_ROOT / "sdk" / "context.py")
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in ("redforge.planning", "redforge.runtime.pipeline")
+    )
+
+
+def test_runtime_publication_normalization_is_centralized() -> None:
+    path = _SOURCE_ROOT / "runtime" / "pipeline.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    functions = {
+        node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "_normalize_capability_result" in functions
+    assert "StatePublication(" not in (_SOURCE_ROOT / "planning" / "execution.py").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_default_output_contract_registry_is_immutable() -> None:
+    from types import MappingProxyType
+
+    from redforge.runtime.pipeline_state import CAPABILITY_OUTPUT_CONTRACTS
+
+    assert isinstance(CAPABILITY_OUTPUT_CONTRACTS, MappingProxyType)
+
+
+def test_execution_history_is_capability_based_not_publication_based() -> None:
+    from dataclasses import fields
+
+    from redforge.runtime.pipeline import CapabilityExecution
+
+    assert tuple(field.name for field in fields(CapabilityExecution)) == (
+        "capability_name",
+        "result",
+    )

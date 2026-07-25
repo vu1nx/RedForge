@@ -61,6 +61,29 @@ assert result.executed_capabilities == ("risk_intelligence",)
 Construction performs no external I/O. Inject `CapabilityDependencies` with
 fake typed ports for deterministic tests.
 
+## Multi-Output State
+
+A capability may publish several typed state values from one execution. The
+runtime validates the complete batch against its declared output contract and
+updates Context atomically. One execution remains one history entry.
+
+```python
+from redforge.sdk import PipelineStateKey, Result, StatePublication, Status
+
+result = Result[None](
+    status=Status.SUCCESS,
+    data=None,
+    publications=(
+        StatePublication(PipelineStateKey.HOSTS, resolved_hosts),
+        StatePublication(PipelineStateKey.SUBDOMAINS, discovered_names),
+    ),
+)
+```
+
+Existing single-output capabilities may continue using `Result.data`. See
+[State Publication](docs/state-publication.md) for explicit publications,
+legacy normalization, subsets, and atomic rejection behavior.
+
 ## Adapter Boundaries
 
 External capabilities depend on focused typed ports and consume immutable,

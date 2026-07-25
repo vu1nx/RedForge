@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from typing import Any, TypeGuard, cast
 
 from redforge.domain.target import Target
-from redforge.runtime.pipeline_state import CAPABILITY_OUTPUT_KEYS
+from redforge.runtime.pipeline_state import CAPABILITY_OUTPUT_CONTRACTS
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
-from redforge.sdk.result import Result, Status
+from redforge.sdk.result import Result, StatePublication, Status
+from redforge.sdk.state import PipelineStateKey
 
 _STATUS_PRECEDENCE: dict[Status, int] = {
     Status.SUCCESS: 0,
@@ -20,17 +21,70 @@ _STATUS_PRECEDENCE: dict[Status, int] = {
 
 def combine_status(current: Status, observed: Status) -> Status:
     """Return the more severe of two capability outcomes."""
-    return (
-        current
-        if _STATUS_PRECEDENCE[current] >= _STATUS_PRECEDENCE[observed]
-        else observed
-    )
+    return current if _STATUS_PRECEDENCE[current] >= _STATUS_PRECEDENCE[observed] else observed
 
 
 def _is_valid_result(value: object) -> TypeGuard[Result[Any]]:
     """Return whether a capability value satisfies the runtime Result contract."""
-    return isinstance(value, Result) and isinstance(
-        cast(object, value.status), Status
+    return isinstance(value, Result) and isinstance(cast(object, value.status), Status)
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedPublications:
+    """Validated atomic publications for one capability execution."""
+
+    explicit: tuple[StatePublication, ...] = ()
+    legacy: tuple[str, object] | None = None
+
+
+def _normalize_capability_result(
+    *,
+    capability_name: str,
+    result: Result[Any],
+    declared_outputs: tuple[PipelineStateKey, ...] | None,
+) -> _NormalizedPublications:
+    """Validate explicit publications or normalize one legacy data value."""
+    publications_value = cast(object, result.publications)
+    if not isinstance(publications_value, tuple) or not all(
+        isinstance(item, StatePublication) for item in cast(tuple[object, ...], publications_value)
+    ):
+        raise ValueError("invalid publication collection")
+    publications = cast(tuple[StatePublication, ...], publications_value)
+    keys = tuple(publication.key for publication in publications)
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate state publications")
+
+    if result.status in {Status.FAILURE, Status.ERROR}:
+        if publications:
+            raise ValueError("stopping result contains publications")
+        return _NormalizedPublications()
+
+    if publications:
+        if result.data is not None:
+            raise ValueError("explicit publications conflict with legacy data")
+        if declared_outputs is None:
+            raise ValueError("explicit publications require an output contract")
+        declared = set(declared_outputs)
+        if any(publication.key not in declared for publication in publications):
+            raise ValueError("undeclared state publication")
+        return _NormalizedPublications(explicit=publications)
+
+    if result.data is None:
+        return _NormalizedPublications()
+    if declared_outputs is None:
+        return _NormalizedPublications(legacy=(capability_name, result.data))
+    if len(declared_outputs) != 1:
+        raise ValueError("legacy data is ambiguous for multiple outputs")
+    return _NormalizedPublications(explicit=(StatePublication(declared_outputs[0], result.data),))
+
+
+def _invalid_result(capability_name: str) -> Result[Any]:
+    """Return a sanitized invalid-result error."""
+    return Result(
+        status=Status.ERROR,
+        data=None,
+        errors=[f"Capability '{capability_name}' returned an invalid result"],
+        metadata={"error_kind": "invalid_capability_result"},
     )
 
 
@@ -76,12 +130,48 @@ class Pipeline:
     Context.state for downstream capabilities.
     """
 
-    def __init__(self, *, output_keys: Mapping[str, str] | None = None) -> None:
-        """Initialize an empty pipeline with an isolated output-key mapping."""
+    def __init__(
+        self,
+        *,
+        output_contracts: (Mapping[str, tuple[PipelineStateKey, ...]] | None) = None,
+        output_keys: Mapping[str, str] | None = None,
+    ) -> None:
+        """Initialize a pipeline with isolated declared output contracts.
+
+        ``output_keys`` preserves the previous single-output configuration API.
+        """
+        if output_contracts is not None and output_keys is not None:
+            raise ValueError("use output_contracts or output_keys, not both")
         self._capabilities: list[Capability] = []
-        self._output_keys = dict(
-            CAPABILITY_OUTPUT_KEYS if output_keys is None else output_keys
-        )
+        configured: Mapping[str, tuple[PipelineStateKey, ...]]
+        if output_contracts is not None:
+            configured = output_contracts
+        elif output_keys is not None:
+            configured = {name: (PipelineStateKey(key),) for name, key in output_keys.items()}
+        else:
+            configured = CAPABILITY_OUTPUT_CONTRACTS
+        self._output_contracts = self._validate_output_contracts(configured)
+
+    @staticmethod
+    def _validate_output_contracts(
+        contracts: Mapping[str, tuple[PipelineStateKey, ...]],
+    ) -> dict[str, tuple[PipelineStateKey, ...]]:
+        validated: dict[str, tuple[PipelineStateKey, ...]] = {}
+        for name, keys in contracts.items():
+            if not isinstance(cast(object, name), str) or not name:
+                raise ValueError("output contract capability name is invalid")
+            keys_value = cast(object, keys)
+            if not isinstance(keys_value, tuple) or not keys_value:
+                raise ValueError("output contract must contain state keys")
+            if not all(
+                isinstance(key, PipelineStateKey) for key in cast(tuple[object, ...], keys_value)
+            ):
+                raise TypeError("output contract keys must be PipelineStateKey values")
+            typed_keys = cast(tuple[PipelineStateKey, ...], keys_value)
+            if len(typed_keys) != len(set(typed_keys)):
+                raise ValueError("output contract contains duplicate state keys")
+            validated[name] = tuple(sorted(typed_keys))
+        return validated
 
     def add(self, capability: Capability) -> None:
         """Register a capability for sequential execution.
@@ -125,6 +215,7 @@ class Pipeline:
         aggregate_status = Status.SUCCESS
 
         for capability in self._capabilities:
+            normalized = _NormalizedPublications()
             try:
                 candidate = cast(object, capability.execute(context))
             except Exception:
@@ -132,23 +223,24 @@ class Pipeline:
                     status=Status.ERROR,
                     data=None,
                     errors=[
-                        f"Capability '{capability.name}' failed with an "
-                        "unexpected execution error"
+                        f"Capability '{capability.name}' failed with an unexpected execution error"
                     ],
                     metadata={"error_kind": "unexpected_execution_error"},
                 )
             else:
                 if _is_valid_result(candidate):
-                    result = candidate
+                    try:
+                        normalized = _normalize_capability_result(
+                            capability_name=capability.name,
+                            result=candidate,
+                            declared_outputs=self._output_contracts.get(capability.name),
+                        )
+                    except Exception:
+                        result = _invalid_result(capability.name)
+                    else:
+                        result = candidate
                 else:
-                    result = Result(
-                        status=Status.ERROR,
-                        data=None,
-                        errors=[
-                            f"Capability '{capability.name}' returned an invalid result"
-                        ],
-                        metadata={"error_kind": "invalid_capability_result"},
-                    )
+                    result = _invalid_result(capability.name)
 
             last_result = result
             executions.append(
@@ -160,17 +252,17 @@ class Pipeline:
             aggregate_status = combine_status(aggregate_status, result.status)
 
             if result.status in {Status.SUCCESS, Status.PARTIAL}:
-                state_key = self._output_keys.get(capability.name, capability.name)
-                state[state_key] = result.data
+                context.publish_many(normalized.explicit)
+                if normalized.legacy is not None:
+                    legacy_key, legacy_value = normalized.legacy
+                    state[legacy_key] = legacy_value
 
             if result.status in {Status.FAILURE, Status.ERROR}:
                 break
 
         return PipelineResult(
             status=aggregate_status,
-            executed_capabilities=tuple(
-                execution.capability_name for execution in executions
-            ),
+            executed_capabilities=tuple(execution.capability_name for execution in executions),
             context=context,
             last_result=last_result,
             execution_order=execution_order,

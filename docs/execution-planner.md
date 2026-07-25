@@ -58,11 +58,12 @@ production constructors. Construction performs no network or subprocess
 operation.
 
 `PipelineBuilder` defensively checks a plan against its canonical descriptor
-registry, factory registry, dependency order, and output-state mappings. It
-then creates one capability per step in exact plan order and returns a fresh,
-unexecuted `Pipeline`. Repeated builds do not reuse capability instances.
-Custom descriptor and factory registries are supported without name branching
-inside the builder.
+registry, factory registry, dependency order, and immutable output contracts.
+Each contract contains the complete tuple from descriptor `provides`, including
+multi-output descriptors. The builder creates one capability per step—not one
+per output—in exact plan order and returns a fresh, unexecuted `Pipeline`.
+Repeated builds do not reuse capability instances. Custom descriptor and
+factory registries are supported without name branching inside the builder.
 
 ## Planned execution
 
@@ -89,6 +90,11 @@ At runtime, `SUCCESS` and `PARTIAL` publish data and continue. `FAILURE` and
 and one-entry-per-executed-capability history remain owned by `Pipeline`.
 Planner steps that never execute are absent from history. There is no dynamic
 replanning.
+
+The planner treats all declared `provides` keys as structurally available after
+a planned step. Runtime [state publication](state-publication.md) validates the
+actual explicit subset. It does not dynamically change or re-plan the immutable
+plan when a capability publishes fewer keys.
 
 Capabilities may consume useful context state beyond their declared required
 inputs. Asset Intelligence currently does this for optional enrichment state.

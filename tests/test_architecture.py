@@ -303,3 +303,111 @@ def test_runtime_does_not_infer_planned_identity_from_class_name() -> None:
 
     assert "__class__" not in source
     assert "type(capability).__name__" not in source
+
+
+def test_capabilities_domain_and_planning_do_not_import_subprocess() -> None:
+    for package in ("capabilities", "domain", "planning"):
+        for path in (_SOURCE_ROOT / package).glob("*.py"):
+            assert "subprocess" not in _imports(path), path
+
+
+def test_tool_contracts_do_not_import_concrete_runner_or_runtime() -> None:
+    for filename in ("tool.py", "tool_registry.py"):
+        imports = _imports(_SOURCE_ROOT / "sdk" / filename)
+        forbidden = (
+            "subprocess",
+            "redforge.adapters",
+            "redforge.runtime",
+            "redforge.capabilities",
+            "redforge.planning",
+        )
+        assert not any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for name in imports
+            for prefix in forbidden
+        ), filename
+
+
+def test_capability_definitions_do_not_reference_tool_definitions() -> None:
+    source = (
+        _SOURCE_ROOT / "sdk" / "capability_definition.py"
+    ).read_text(encoding="utf-8")
+    assert "ToolDefinition" not in source
+    assert "ToolId" not in source
+
+
+def test_local_tool_runner_is_shell_free_and_tool_agnostic() -> None:
+    path = _SOURCE_ROOT / "adapters" / "tool_runner.py"
+    source = path.read_text(encoding="utf-8")
+
+    assert "shell=False" in source
+    assert "shell=True" not in source
+    assert "os.system" not in source
+    assert "subprocess" in _imports(path)
+    for tool_name in (
+        "subfinder",
+        "amass",
+        "assetfinder",
+        "findomain",
+        "naabu",
+        "nmap",
+        "masscan",
+        "httpx",
+        "katana",
+        "nuclei",
+    ):
+        assert tool_name not in source.lower()
+
+
+def test_source_has_no_shell_true_or_os_system() -> None:
+    for path in _SOURCE_ROOT.rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert "shell=True" not in source, path
+        assert "os.system(" not in source, path
+
+
+def test_tool_registry_contains_definitions_only() -> None:
+    from redforge.sdk import ToolDefinition, ToolRegistry
+
+    definition = ToolDefinition(
+        "example",
+        "Example",
+        "Example external provider.",
+        "example",
+    )
+    registry = ToolRegistry((definition,))
+
+    assert registry.all() == (definition,)
+    assert not hasattr(registry, "runner")
+    assert not hasattr(registry, "run")
+
+
+def test_no_global_mutable_tool_registry_or_runner() -> None:
+    paths = (
+        _SOURCE_ROOT / "sdk" / "tool_registry.py",
+        _SOURCE_ROOT / "adapters" / "tool_runner.py",
+    )
+    forbidden_constructors = {
+        "ToolRegistry",
+        "LocalSubprocessToolRunner",
+        "ToolRunnerConfig",
+    }
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        assignments = (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+        )
+        for assignment in assignments:
+            value = assignment.value
+            assert not (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id in forbidden_constructors
+            )
+
+
+def test_fake_tool_runner_has_no_subprocess_dependency() -> None:
+    imports = _imports(_SOURCE_ROOT / "testing" / "tool_runner.py")
+    assert "subprocess" not in imports

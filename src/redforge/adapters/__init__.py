@@ -31,6 +31,7 @@ from redforge.adapters.technology_detection import (
     TechnologyDetectionResult,
     TechnologyDetector,
 )
+from redforge.adapters.tool_runner import LocalSubprocessToolRunner
 
 __all__ = [
     "HttpxAdapter",
@@ -43,6 +44,7 @@ __all__ = [
     "HttpProbeTransport",
     "StandardHostResolver",
     "KatanaAdapter",
+    "LocalSubprocessToolRunner",
     "NvdAdapter",
     "SubdomainDiscoveryResult",
     "SubdomainProvider",

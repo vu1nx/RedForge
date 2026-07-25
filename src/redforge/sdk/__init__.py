@@ -25,6 +25,16 @@ from redforge.sdk.capability_id import (
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, StatePublication, Status
 from redforge.sdk.state import PipelineStateKey
+from redforge.sdk.tool import (
+    ToolDefinition,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+    ToolId,
+    ToolInvocation,
+    ToolRunner,
+    ToolRunnerConfig,
+)
+from redforge.sdk.tool_registry import ToolRegistry, UnknownToolError
 
 __all__ = [
     "Capability",
@@ -36,6 +46,15 @@ __all__ = [
     "Result",
     "StatePublication",
     "Status",
+    "ToolDefinition",
+    "ToolExecutionResult",
+    "ToolExecutionStatus",
+    "ToolId",
+    "ToolInvocation",
+    "ToolRegistry",
+    "ToolRunner",
+    "ToolRunnerConfig",
+    "UnknownToolError",
     "ASSET_INTELLIGENCE",
     "BUILTIN_CAPABILITY_IDS",
     "HOST_RESOLUTION",

@@ -82,3 +82,9 @@ Planned steps and configured runtime instances are associated through typed
 `CapabilityId` values from [Capability Registry v2](capability-registry.md).
 Execution history retains existing serialized names and records the typed ID
 for planned or explicitly configured executions.
+
+External process outcomes are deliberately separate from capability `Result`
+values. A tool adapter consumes `ToolExecutionResult`, parses domain output,
+and chooses the appropriate capability status. This preserves existing
+`PARTIAL`, `FAILURE`, `ERROR`, publication, and execution-history semantics.
+See [External Tool Execution](tool-execution.md).

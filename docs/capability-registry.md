@@ -124,3 +124,11 @@ legacy manual capability may still publish `Result.data` under its `.name`;
 this deprecated fallback is isolated in the runtime normalization boundary.
 Planned pipelines and explicitly configured manual pipelines never depend on
 it.
+
+## Capability identity versus tool identity
+
+Capabilities model security responsibilities. Tools are replaceable execution
+providers. `CapabilityDefinition` therefore never contains an executable,
+`ToolDefinition`, or runner. A future adapter may select one or several
+registered `ToolId` values while continuing to implement the same capability
+contract. See [External Tool Execution](tool-execution.md).

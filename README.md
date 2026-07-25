@@ -94,6 +94,37 @@ stable `name` is `custom_discovery`. See
 [Capability Registry v2](docs/capability-registry.md) for queries, default
 definitions, factory alignment, and legacy migration.
 
+## External Tool Execution
+
+The external-tool framework provides a typed runner boundary with literal argv,
+explicit timeouts, bounded captured output, and a minimal environment policy
+for new provider integrations. Capabilities and planners do not invoke
+subprocesses.
+
+```python
+import sys
+
+from redforge.adapters import LocalSubprocessToolRunner
+from redforge.sdk import ToolDefinition, ToolId, ToolInvocation
+
+definition = ToolDefinition(
+    tool_id=ToolId("example_tool"),
+    display_name="Example Tool",
+    description="Portable external process example.",
+    executable=sys.executable,
+    default_timeout_seconds=10,
+)
+invocation = ToolInvocation(
+    tool_id=definition.tool_id,
+    arguments=("-c", "print('hello')"),
+)
+result = LocalSubprocessToolRunner().run(definition, invocation)
+```
+
+Arguments remain separate process values; the local runner never invokes a
+shell. See [External Tool Execution](docs/tool-execution.md) for environment,
+diagnostic, truncation, adapter-mapping, and testing policies.
+
 ## Multi-Output State
 
 A capability may publish several typed state values from one execution. The

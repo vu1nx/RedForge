@@ -4,44 +4,32 @@ from dataclasses import dataclass
 from typing import cast
 
 from redforge.planning.errors import InvalidPlanningInputError
-from redforge.runtime.pipeline_state import PipelineStateKey
+from redforge.sdk.capability_definition import (
+    CapabilityDefinition,
+    CapabilityDescriptor,
+)
+from redforge.sdk.capability_id import CapabilityId, normalize_capability_id
+from redforge.sdk.state import PipelineStateKey
 
 
-def state_keys() -> tuple[str, ...]:
+def state_keys() -> tuple[PipelineStateKey, ...]:
     """Return every canonical pipeline state key in deterministic order."""
-    return tuple(
-        sorted(
-            value
-            for name, value in vars(PipelineStateKey).items()
-            if name.isupper() and isinstance(value, str)
-        )
-    )
+    return tuple(sorted(PipelineStateKey))
 
 
-_STATE_KEYS = frozenset(state_keys())
-
-
-def validate_state_key(value: object) -> str:
+def validate_state_key(value: object) -> PipelineStateKey:
     """Return a canonical state key or raise a focused validation error."""
-    if not isinstance(value, str) or value not in _STATE_KEYS:
-        raise InvalidPlanningInputError("planning state key is invalid")
-    return value
-
-
-def _validate_name(value: object) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or value != value.strip().lower()
-        or any(not (character.isalnum() or character == "_") for character in value)
-    ):
-        raise InvalidPlanningInputError("capability name is invalid")
-    return value
+    try:
+        return PipelineStateKey(cast(str, value))
+    except (TypeError, ValueError):
+        raise InvalidPlanningInputError(
+            "planning state key is invalid"
+        ) from None
 
 
 def _validate_state_tuple(
     value: object, *, field_name: str, require_sorted: bool = False
-) -> tuple[str, ...]:
+) -> tuple[PipelineStateKey, ...]:
     if not isinstance(value, tuple):
         raise InvalidPlanningInputError(f"{field_name} must be an immutable tuple")
     items = tuple(
@@ -55,56 +43,74 @@ def _validate_state_tuple(
     return items
 
 
-@dataclass(frozen=True, slots=True)
-class CapabilityDescriptor:
-    """Declarative required and provided state for one capability."""
-
-    name: str
-    requires: tuple[str, ...] = ()
-    provides: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        _validate_name(self.name)
-        requires = _validate_state_tuple(self.requires, field_name="requires")
-        provides = _validate_state_tuple(self.provides, field_name="provides")
-        if not provides:
-            raise InvalidPlanningInputError(
-                "capability descriptor must provide at least one state key"
-            )
-        object.__setattr__(self, "requires", tuple(sorted(requires)))
-        object.__setattr__(self, "provides", tuple(sorted(provides)))
-
-
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class ExecutionStep:
     """One capability execution position in a deterministic plan."""
 
     position: int
-    capability_name: str
-    requires: tuple[str, ...]
-    provides: tuple[str, ...]
+    capability_id: CapabilityId
+    requires: tuple[PipelineStateKey, ...]
+    provides: tuple[PipelineStateKey, ...]
 
-    def __post_init__(self) -> None:
-        position = cast(object, self.position)
-        if not isinstance(position, int) or isinstance(position, bool) or position < 0:
-            raise InvalidPlanningInputError("step position must be a non-negative integer")
-        _validate_name(self.capability_name)
-        _validate_state_tuple(
-            self.requires, field_name="step requires", require_sorted=True
+    def __init__(
+        self,
+        position: int,
+        capability_id: CapabilityId | str | None = None,
+        requires: tuple[PipelineStateKey | str, ...] = (),
+        provides: tuple[PipelineStateKey | str, ...] = (),
+        *,
+        capability_name: str | None = None,
+    ) -> None:
+        """Create a typed step, accepting legacy ``capability_name=``."""
+        position_value = cast(object, position)
+        if (
+            not isinstance(position_value, int)
+            or isinstance(position_value, bool)
+            or position_value < 0
+        ):
+            raise InvalidPlanningInputError(
+                "step position must be a non-negative integer"
+            )
+        if capability_id is not None and capability_name is not None:
+            raise InvalidPlanningInputError(
+                "use capability_id or legacy capability_name, not both"
+            )
+        identity_input = (
+            capability_id if capability_id is not None else capability_name
         )
-        provides = _validate_state_tuple(
-            self.provides, field_name="step provides", require_sorted=True
+        if identity_input is None:
+            raise InvalidPlanningInputError("step capability identity is required")
+        try:
+            identity = normalize_capability_id(identity_input)
+        except (TypeError, ValueError) as error:
+            raise InvalidPlanningInputError(
+                "step capability identity is invalid"
+            ) from error
+        required = _validate_state_tuple(
+            requires, field_name="step requires", require_sorted=True
         )
-        if not provides:
+        provided = _validate_state_tuple(
+            provides, field_name="step provides", require_sorted=True
+        )
+        if not provided:
             raise InvalidPlanningInputError("execution step must provide state")
+        object.__setattr__(self, "position", position)
+        object.__setattr__(self, "capability_id", identity)
+        object.__setattr__(self, "requires", required)
+        object.__setattr__(self, "provides", provided)
+
+    @property
+    def capability_name(self) -> str:
+        """Return the legacy serialized capability identity."""
+        return self.capability_id.value
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionPlan:
     """Immutable dependency-ordered plan that does not execute capabilities."""
 
-    goals: tuple[str, ...]
-    available_state: tuple[str, ...]
+    goals: tuple[PipelineStateKey, ...]
+    available_state: tuple[PipelineStateKey, ...]
     steps: tuple[ExecutionStep, ...] = ()
 
     def __post_init__(self) -> None:
@@ -146,11 +152,16 @@ class ExecutionPlan:
 
     @property
     def required_capabilities(self) -> tuple[str, ...]:
-        """Return planned capability names in execution order."""
+        """Return legacy serialized capability identities in execution order."""
         return tuple(step.capability_name for step in self.steps)
 
     @property
-    def produced_state(self) -> tuple[str, ...]:
+    def required_capability_ids(self) -> tuple[CapabilityId, ...]:
+        """Return typed planned capability identities in execution order."""
+        return tuple(step.capability_id for step in self.steps)
+
+    @property
+    def produced_state(self) -> tuple[PipelineStateKey, ...]:
         """Return all state provided by plan steps."""
         return tuple(
             sorted({state for step in self.steps for state in step.provides})
@@ -160,3 +171,13 @@ class ExecutionPlan:
     def is_empty(self) -> bool:
         """Return whether no capability execution is required."""
         return not self.steps
+
+
+__all__ = [
+    "CapabilityDefinition",
+    "CapabilityDescriptor",
+    "ExecutionPlan",
+    "ExecutionStep",
+    "state_keys",
+    "validate_state_key",
+]

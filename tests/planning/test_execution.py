@@ -15,6 +15,7 @@ from redforge.planning import (
     CapabilityDependencies,
     CapabilityDescriptor,
     CapabilityFactoryRegistry,
+    CapabilityId,
     CapabilityRegistry,
     ExecutionPlanner,
     PipelineBuilder,
@@ -107,12 +108,13 @@ class ResultCapability(Capability):
 class PlannedMultiOutputCapability(Capability):
     """One planned capability that explicitly publishes two states."""
 
-    def __init__(self, calls: list[str]) -> None:
+    def __init__(self, calls: list[str], name: str = "multi") -> None:
         self._calls = calls
+        self._name = name
 
     @property
     def name(self) -> str:
-        return "multi"
+        return self._name
 
     def execute(self, context: Context) -> Result[None]:  # noqa: ARG002
         self._calls.append(self.name)
@@ -437,9 +439,88 @@ def test_planned_execution_publishes_multiple_goals_from_one_step() -> None:
     result = execution.execute(plan=plan, context=context)
 
     assert plan.required_capabilities == ("multi",)
+    assert plan.required_capability_ids == (CapabilityId("multi"),)
     assert plan == original_plan
     assert calls == ["multi"]
     assert result.status == Status.SUCCESS
     assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
     assert result.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
     assert len(result.executions) == 1
+    assert result.executions[0].capability_id == CapabilityId("multi")
+
+
+def test_custom_multi_output_definition_fans_out_without_legacy_fallback() -> None:
+    definitions = CapabilityRegistry(
+        (
+            CapabilityDescriptor(
+                name="source",
+                provides=(
+                    PipelineStateKey.SUBDOMAINS,
+                    PipelineStateKey.HOSTS,
+                ),
+            ),
+            CapabilityDescriptor(
+                name="host_consumer",
+                requires=(PipelineStateKey.HOSTS,),
+                provides=(PipelineStateKey.ENDPOINTS,),
+            ),
+            CapabilityDescriptor(
+                name="subdomain_consumer",
+                requires=(PipelineStateKey.SUBDOMAINS,),
+                provides=(PipelineStateKey.ALIVE_HOSTS,),
+            ),
+        )
+    )
+    calls: list[str] = []
+    factories = CapabilityFactoryRegistry()
+    factories.register(
+        CapabilityId("source"),
+        lambda: PlannedMultiOutputCapability(calls, "source"),
+    )
+    factories.register(
+        CapabilityId("host_consumer"),
+        lambda: ResultCapability(
+            "host_consumer",
+            Result(status=Status.SUCCESS, data=("endpoint",)),
+            calls,
+        ),
+    )
+    factories.register(
+        CapabilityId("subdomain_consumer"),
+        lambda: ResultCapability(
+            "subdomain_consumer",
+            Result(status=Status.SUCCESS, data=("alive",)),
+            calls,
+        ),
+    )
+    execution = PlannedExecution(
+        planner=ExecutionPlanner(definitions),
+        builder=PipelineBuilder(
+            descriptor_registry=definitions,
+            factory_registry=factories,
+        ),
+    )
+    context = Context(target_id="example.com")
+
+    plan = execution.plan(
+        goals=(PipelineStateKey.ENDPOINTS, PipelineStateKey.ALIVE_HOSTS),
+        context=context,
+    )
+    result = execution.execute(plan=plan, context=context)
+
+    assert plan.required_capability_ids == (
+        CapabilityId("source"),
+        CapabilityId("host_consumer"),
+        CapabilityId("subdomain_consumer"),
+    )
+    assert calls == ["source", "host_consumer", "subdomain_consumer"]
+    assert tuple(item.capability_id for item in result.executions) == (
+        CapabilityId("source"),
+        CapabilityId("host_consumer"),
+        CapabilityId("subdomain_consumer"),
+    )
+    assert result.status == Status.SUCCESS
+    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert result.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
+    assert result.context.get(PipelineStateKey.ENDPOINTS) == ("endpoint",)
+    assert result.context.get(PipelineStateKey.ALIVE_HOSTS) == ("alive",)

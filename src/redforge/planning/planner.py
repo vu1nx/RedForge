@@ -11,17 +11,19 @@ from redforge.planning.errors import (
     MissingProducerError,
 )
 from redforge.planning.models import (
-    CapabilityDescriptor,
     ExecutionPlan,
     ExecutionStep,
     validate_state_key,
 )
 from redforge.planning.registry import CapabilityRegistry
+from redforge.sdk.capability_definition import CapabilityDefinition
+from redforge.sdk.capability_id import CapabilityId
+from redforge.sdk.state import PipelineStateKey
 
 
 def _normalize_state_input(
     values: Iterable[str], *, allow_empty: bool, field_name: str
-) -> tuple[str, ...]:
+) -> tuple[PipelineStateKey, ...]:
     if isinstance(values, str):
         raise InvalidPlanningInputError(f"{field_name} must be a collection")
     try:
@@ -59,35 +61,38 @@ class ExecutionPlanner:
             field_name="available state",
         )
         available = set(normalized_available)
-        selected: dict[str, CapabilityDescriptor] = {}
-        visiting: list[str] = []
-        completed: set[str] = set()
+        selected: dict[CapabilityId, CapabilityDefinition] = {}
+        visiting: list[CapabilityId] = []
+        completed: set[CapabilityId] = set()
 
-        def producer_for(state_key: str) -> CapabilityDescriptor:
+        def producer_for(state_key: str) -> CapabilityDefinition:
             producers = self._registry.producers_for(state_key)
             if not producers:
                 raise MissingProducerError(state_key)
             if len(producers) > 1:
                 raise AmbiguousProducerError(
                     state_key,
-                    tuple(producer.name for producer in producers),
+                    tuple(producer.capability_id.value for producer in producers),
                 )
             return next(iter(producers))
 
-        def visit(descriptor: CapabilityDescriptor) -> None:
-            if descriptor.name in completed:
+        def visit(definition: CapabilityDefinition) -> None:
+            capability_id = definition.capability_id
+            if capability_id in completed:
                 return
-            if descriptor.name in visiting:
-                start = visiting.index(descriptor.name)
-                cycle = (*visiting[start:], descriptor.name)
-                raise DependencyCycleError(cycle)
-            visiting.append(descriptor.name)
-            selected[descriptor.name] = descriptor
-            for requirement in sorted(descriptor.requires):
+            if capability_id in visiting:
+                start = visiting.index(capability_id)
+                cycle = (*visiting[start:], capability_id)
+                raise DependencyCycleError(
+                    tuple(item.value for item in cycle)
+                )
+            visiting.append(capability_id)
+            selected[capability_id] = definition
+            for requirement in definition.requires:
                 if requirement not in available:
                     visit(producer_for(requirement))
             visiting.pop()
-            completed.add(descriptor.name)
+            completed.add(capability_id)
 
         for goal in normalized_goals:
             if goal not in available:
@@ -97,11 +102,11 @@ class ExecutionPlanner:
         steps = tuple(
             ExecutionStep(
                 position=position,
-                capability_name=descriptor.name,
-                requires=tuple(sorted(descriptor.requires)),
-                provides=tuple(sorted(descriptor.provides)),
+                capability_id=definition.capability_id,
+                requires=definition.requires,
+                provides=definition.provides,
             )
-            for position, descriptor in enumerate(ordered)
+            for position, definition in enumerate(ordered)
         )
         return ExecutionPlan(
             goals=normalized_goals,
@@ -111,13 +116,15 @@ class ExecutionPlanner:
 
     def _topological_order(
         self,
-        selected: dict[str, CapabilityDescriptor],
-        available: set[str],
-    ) -> tuple[CapabilityDescriptor, ...]:
-        dependencies: dict[str, set[str]] = {
+        selected: dict[CapabilityId, CapabilityDefinition],
+        available: set[PipelineStateKey],
+    ) -> tuple[CapabilityDefinition, ...]:
+        dependencies: dict[CapabilityId, set[CapabilityId]] = {
             name: set() for name in selected
         }
-        dependents: dict[str, set[str]] = {name: set() for name in selected}
+        dependents: dict[CapabilityId, set[CapabilityId]] = {
+            name: set() for name in selected
+        }
         for name, descriptor in selected.items():
             for requirement in descriptor.requires:
                 if requirement in available:
@@ -125,12 +132,12 @@ class ExecutionPlanner:
                 producer = self._single_selected_producer(
                     requirement, selected
                 )
-                dependencies[name].add(producer.name)
-                dependents[producer.name].add(name)
+                dependencies[name].add(producer.capability_id)
+                dependents[producer.capability_id].add(name)
 
         ready = [name for name, items in dependencies.items() if not items]
         heapq.heapify(ready)
-        ordered: list[CapabilityDescriptor] = []
+        ordered: list[CapabilityDefinition] = []
         while ready:
             name = heapq.heappop(ready)
             ordered.append(selected[name])
@@ -139,15 +146,17 @@ class ExecutionPlanner:
                 if not dependencies[dependent]:
                     heapq.heappush(ready, dependent)
         if len(ordered) != len(selected):
-            unresolved = min(set(selected) - {item.name for item in ordered})
-            raise DependencyCycleError((unresolved, unresolved))
+            unresolved = min(
+                set(selected) - {item.capability_id for item in ordered}
+            )
+            raise DependencyCycleError((unresolved.value, unresolved.value))
         return tuple(ordered)
 
     def _single_selected_producer(
         self,
         state_key: str,
-        selected: dict[str, CapabilityDescriptor],
-    ) -> CapabilityDescriptor:
+        selected: dict[CapabilityId, CapabilityDefinition],
+    ) -> CapabilityDefinition:
         producers = tuple(
             descriptor
             for descriptor in selected.values()
@@ -156,6 +165,8 @@ class ExecutionPlanner:
         if not producers:
             raise MissingProducerError(state_key)
         if len(producers) > 1:
-            names = tuple(sorted(item.name for item in producers))
+            names = tuple(
+                sorted(item.capability_id.value for item in producers)
+            )
             raise AmbiguousProducerError(state_key, names)
         return next(iter(producers))

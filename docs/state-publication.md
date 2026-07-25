@@ -46,9 +46,10 @@ result = Result[None](
 ```
 
 Explicit publications are checked against the pipeline's immutable output
-contract. Every published key must be declared, but a result may publish a
-subset. Missing declared keys are not populated with placeholders and do not
-change the capability-selected status.
+contract. For planned execution this contract comes directly from the
+Capability Registry v2 definition. Every published key must be declared, but a
+result may publish a subset. Missing declared keys are not populated with
+placeholders and do not change the capability-selected status.
 
 The complete publication batch is validated before `Context` changes. Duplicate
 keys, undeclared keys, malformed publications, or a conflict between explicit
@@ -75,17 +76,19 @@ that data to one publication. A legacy result for a multi-output contract is
 ambiguous and fails safely; the runtime never selects the first declared key.
 `None` without explicit publications means no state publication.
 
-Manual pipelines may configure multi-output declarations without using the
-planner:
+Manual pipelines may configure typed identity and multi-output declarations
+without using the planner:
 
 ```python
-pipeline = Pipeline(
-    output_contracts={
-        "custom_capability": (
-            PipelineStateKey.HOSTS,
-            PipelineStateKey.SUBDOMAINS,
-        )
-    }
+from redforge.planning import CapabilityId
+
+pipeline.add(
+    capability,
+    capability_id=CapabilityId("custom_capability"),
+    provides=(
+        PipelineStateKey.HOSTS,
+        PipelineStateKey.SUBDOMAINS,
+    ),
 )
 ```
 

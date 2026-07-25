@@ -27,9 +27,11 @@ The existing Pipeline runtime remains the execution authority.
 
 ## Planner
 
-`CapabilityDescriptor` declares one canonical capability name and immutable
-required/provided state tuples. `CapabilityRegistry` stores descriptors only;
-it never stores factories, capabilities, adapters, or configuration.
+`CapabilityDefinition` declares one typed `CapabilityId`, immutable
+required/provided state tuples, display metadata, contract version, and tags.
+`CapabilityRegistry` stores definitions only; it never stores factories,
+capabilities, adapters, or configuration. `CapabilityDescriptor` remains a
+narrow legacy alias. See [Capability Registry v2](capability-registry.md).
 
 `ExecutionPlanner` expands goals through unique producers and returns an
 immutable, deterministic topological `ExecutionPlan`. Missing and ambiguous
@@ -44,11 +46,11 @@ the run may later stop.
 ## Factories and builder
 
 `CapabilityFactoryRegistry` is a separate runtime construction registry. Each
-canonical name has one explicit callable factory. Public names are immutable
-and sorted; duplicates and missing factories are rejected. Every invocation
-must produce a fresh `Capability` whose runtime name matches its registered
-name. Invalid objects, name mismatches, and factory exceptions fail before
-runtime execution, with sanitized integration errors.
+typed capability ID has one explicit callable factory. Public IDs are immutable
+and sorted; duplicates, unknown definitions, and missing factories are
+rejected. Every invocation must produce a fresh `Capability` aligned with its
+registered identity. Invalid objects, identity mismatches, and factory
+exceptions fail before runtime execution, with sanitized integration errors.
 
 Factories may close over explicit typed ports. `CapabilityDependencies`
 supports the default `SubdomainProvider`, `HostResolver`,
@@ -59,7 +61,7 @@ operation.
 
 `PipelineBuilder` defensively checks a plan against its canonical descriptor
 registry, factory registry, dependency order, and immutable output contracts.
-Each contract contains the complete tuple from descriptor `provides`, including
+Each contract contains the complete tuple from definition `provides`, including
 multi-output descriptors. The builder creates one capability per step—not one
 per output—in exact plan order and returns a fresh, unexecuted `Pipeline`.
 Repeated builds do not reuse capability instances. Custom descriptor and

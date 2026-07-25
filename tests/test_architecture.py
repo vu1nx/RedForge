@@ -223,4 +223,83 @@ def test_execution_history_is_capability_based_not_publication_based() -> None:
     assert tuple(field.name for field in fields(CapabilityExecution)) == (
         "capability_name",
         "result",
+        "capability_id",
     )
+
+
+def test_capability_definitions_have_no_runtime_or_adapter_dependencies() -> None:
+    for filename in (
+        "capability_id.py",
+        "capability_definition.py",
+        "default_capabilities.py",
+    ):
+        path = _SOURCE_ROOT / "sdk" / filename
+        imports = _imports(path)
+        forbidden = (
+            "redforge.adapters",
+            "redforge.capabilities",
+            "redforge.runtime.pipeline",
+            "redforge.planning.factories",
+            "socket",
+            "subprocess",
+            "urllib",
+        )
+        assert not any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for name in imports
+            for prefix in forbidden
+        ), path
+
+
+def test_definitions_do_not_contain_factories_or_runtime_instances() -> None:
+    from dataclasses import fields
+
+    from redforge.planning import CapabilityDefinition
+
+    assert tuple(field.name for field in fields(CapabilityDefinition)) == (
+        "capability_id",
+        "requires",
+        "provides",
+        "display_name",
+        "description",
+        "version",
+        "tags",
+    )
+
+
+def test_default_registry_and_runtime_contracts_share_definitions() -> None:
+    pipeline_state = (
+        _SOURCE_ROOT / "runtime" / "pipeline_state.py"
+    ).read_text(encoding="utf-8")
+    default_registry = (
+        _SOURCE_ROOT / "planning" / "default_registry.py"
+    ).read_text(encoding="utf-8")
+
+    assert "DEFAULT_CAPABILITY_DEFINITIONS" in pipeline_state
+    assert "DEFAULT_CAPABILITY_DEFINITIONS" in default_registry
+    assert "CapabilityDefinition(" not in default_registry
+
+
+def test_tags_and_versions_do_not_affect_planning_or_execution() -> None:
+    planner = (_SOURCE_ROOT / "planning" / "planner.py").read_text(
+        encoding="utf-8"
+    )
+    builder = (_SOURCE_ROOT / "planning" / "builder.py").read_text(
+        encoding="utf-8"
+    )
+    pipeline = (_SOURCE_ROOT / "runtime" / "pipeline.py").read_text(
+        encoding="utf-8"
+    )
+
+    for source in (planner, builder, pipeline):
+        assert ".tags" not in source
+        assert ".version" not in source
+
+
+def test_runtime_does_not_infer_planned_identity_from_class_name() -> None:
+    source = (_SOURCE_ROOT / "runtime" / "pipeline.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "__class__" not in source
+    assert "type(capability).__name__" not in source

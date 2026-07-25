@@ -4,48 +4,59 @@ from dataclasses import FrozenInstanceError
 
 import pytest  # type: ignore[reportMissingImports]
 
-from redforge.planning import CapabilityDescriptor, ExecutionPlan, ExecutionStep
+from redforge.planning import (
+    CapabilityDefinition,
+    CapabilityDescriptor,
+    CapabilityId,
+    ExecutionPlan,
+    ExecutionStep,
+)
 from redforge.planning.errors import InvalidPlanningInputError
 from redforge.runtime.pipeline_state import PipelineStateKey
 
 
-def test_descriptor_is_immutable_slotted_and_normalized() -> None:
-    descriptor = CapabilityDescriptor(
-        name="example_capability",
-        requires=(PipelineStateKey.HOSTS, PipelineStateKey.SUBDOMAINS),
+def test_definition_is_immutable_slotted_and_normalized() -> None:
+    definition = CapabilityDefinition(
+        capability_id=CapabilityId("example_capability"),
+        display_name="Example Capability",
+        description="Produces deterministic endpoint records.",
+        version="1.0",
+        requires=[PipelineStateKey.SUBDOMAINS, PipelineStateKey.HOSTS],
         provides=(PipelineStateKey.ENDPOINTS,),
+        tags=["Recon", "analysis"],
     )
 
-    assert descriptor.requires == (
+    assert definition.requires == (
         PipelineStateKey.HOSTS,
         PipelineStateKey.SUBDOMAINS,
     )
-    assert not hasattr(descriptor, "__dict__")
+    assert definition.tags == ("analysis", "recon")
+    assert not hasattr(definition, "__dict__")
     with pytest.raises(FrozenInstanceError):
-        descriptor.name = "other"  # type: ignore[misc]
+        definition.version = "2.0"  # type: ignore[misc]
 
 
 @pytest.mark.parametrize(
     "name",
     ["", " Upper", "upper-case", "with space", "UPPER"],
 )
-def test_descriptor_rejects_invalid_names(name: str) -> None:
-    with pytest.raises(InvalidPlanningInputError):
+def test_legacy_descriptor_rejects_invalid_names(name: str) -> None:
+    with pytest.raises(ValueError):
         CapabilityDescriptor(name, provides=(PipelineStateKey.HOSTS,))
 
 
-def test_descriptor_rejects_mutable_duplicate_and_empty_declarations() -> None:
-    with pytest.raises(InvalidPlanningInputError):
-        CapabilityDescriptor(
-            "mutable",
-            provides=[PipelineStateKey.HOSTS],  # type: ignore[arg-type]
-        )
-    with pytest.raises(InvalidPlanningInputError):
+def test_definition_normalizes_mutable_and_rejects_duplicate_or_empty_outputs() -> None:
+    normalized = CapabilityDescriptor(
+        "mutable",
+        provides=[PipelineStateKey.HOSTS],
+    )
+    assert normalized.provides == (PipelineStateKey.HOSTS,)
+    with pytest.raises(ValueError):
         CapabilityDescriptor(
             "duplicate",
             provides=(PipelineStateKey.HOSTS, PipelineStateKey.HOSTS),
         )
-    with pytest.raises(InvalidPlanningInputError):
+    with pytest.raises(ValueError):
         CapabilityDescriptor("empty")
 
 
@@ -63,6 +74,8 @@ def test_execution_plan_validates_and_exposes_derived_immutable_state() -> None:
     )
 
     assert plan.required_capabilities == ("host_resolution",)
+    assert plan.required_capability_ids == (CapabilityId("host_resolution"),)
+    assert step.capability_id == CapabilityId("host_resolution")
     assert plan.produced_state == (PipelineStateKey.HOSTS,)
     assert not plan.is_empty
     assert not hasattr(plan, "__dict__")

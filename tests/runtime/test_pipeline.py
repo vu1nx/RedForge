@@ -30,6 +30,7 @@ from redforge.runtime.pipeline import (
 )
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
+from redforge.sdk.capability_id import CapabilityId
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, StatePublication, Status
 
@@ -733,3 +734,39 @@ def test_explicit_single_output_works_and_conflicting_data_fails() -> None:
     assert result.status == Status.ERROR
     assert result.context.state == {}
     assert "secret" not in repr(result.last_result)
+
+
+def test_explicit_typed_manual_contract_bypasses_name_fallback() -> None:
+    identity = CapabilityId("manual_typed")
+    pipeline = Pipeline()
+    pipeline.add(
+        MockCapability(
+            identity.value,
+            Result(status=Status.SUCCESS, data=("host",)),
+        ),
+        capability_id=identity,
+        provides=(PipelineStateKey.HOSTS,),
+    )
+
+    result = pipeline.run("example.com")
+
+    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert identity.value not in result.context.state
+    assert result.executions[0].capability_id == identity
+
+
+@pytest.mark.parametrize("invalid", ["", "UPPER", "with-dash", "with space"])
+def test_explicit_manual_contract_rejects_malformed_legacy_ids(
+    invalid: str,
+) -> None:
+    pipeline = Pipeline()
+
+    with pytest.raises(ValueError):
+        pipeline.add(
+            MockCapability(
+                invalid,
+                Result(status=Status.SUCCESS, data=("host",)),
+            ),
+            capability_id=invalid,
+            provides=(PipelineStateKey.HOSTS,),
+        )

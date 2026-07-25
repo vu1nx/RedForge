@@ -3,25 +3,26 @@
 from collections.abc import Mapping
 from types import MappingProxyType
 
+from redforge.sdk.capability_id import CapabilityId
+from redforge.sdk.default_capabilities import DEFAULT_CAPABILITY_DEFINITIONS
 from redforge.sdk.state import PipelineStateKey
 
-CAPABILITY_OUTPUT_CONTRACTS: Mapping[str, tuple[PipelineStateKey, ...]] = MappingProxyType(
+CAPABILITY_OUTPUT_CONTRACTS: Mapping[
+    CapabilityId, tuple[PipelineStateKey, ...]
+] = MappingProxyType(
     {
-        "subdomain_discovery": (PipelineStateKey.SUBDOMAINS,),
-        "host_resolution": (PipelineStateKey.HOSTS,),
-        "http_probe": (PipelineStateKey.ALIVE_HOSTS,),
-        "web_crawl": (PipelineStateKey.ENDPOINTS,),
-        "technology_detection": (PipelineStateKey.TECHNOLOGIES,),
-        "asset_intelligence": (PipelineStateKey.ASSET_INTELLIGENCE,),
-        "vulnerability_intelligence": (PipelineStateKey.VULNERABILITY_INTELLIGENCE,),
-        "knowledge_graph": (PipelineStateKey.KNOWLEDGE_GRAPH,),
-        "risk_intelligence": (PipelineStateKey.RISK_INTELLIGENCE,),
+        definition.capability_id: definition.provides
+        for definition in DEFAULT_CAPABILITY_DEFINITIONS
     }
 )
 """Default immutable output contracts for manual pipelines."""
 
 
 CAPABILITY_OUTPUT_KEYS: Mapping[str, str] = MappingProxyType(
-    {name: state_keys[0] for name, state_keys in CAPABILITY_OUTPUT_CONTRACTS.items()}
+    {
+        capability_id.value: state_keys[0]
+        for capability_id, state_keys in CAPABILITY_OUTPUT_CONTRACTS.items()
+        if len(state_keys) == 1
+    }
 )
 """Legacy single-output view retained for compatibility."""

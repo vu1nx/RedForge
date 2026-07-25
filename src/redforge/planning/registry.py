@@ -1,46 +1,91 @@
-"""Deterministic descriptor-only capability registry."""
+"""Deterministic Registry v2 for immutable capability definitions."""
 
+from collections.abc import Iterable
 from typing import cast
 
 from redforge.planning.errors import UnknownCapabilityError
-from redforge.planning.models import CapabilityDescriptor, validate_state_key
+from redforge.sdk.capability_definition import CapabilityDefinition
+from redforge.sdk.capability_id import CapabilityId, normalize_capability_id
+from redforge.sdk.state import PipelineStateKey
 
 
 class CapabilityRegistry:
-    """Configure and query immutable public views of planning descriptors."""
+    """Mutation-controlled registry with immutable deterministic query results."""
 
-    def __init__(self) -> None:
-        self._by_name: dict[str, CapabilityDescriptor] = {}
+    def __init__(
+        self, definitions: Iterable[CapabilityDefinition] = ()
+    ) -> None:
+        self._by_id: dict[CapabilityId, CapabilityDefinition] = {}
+        for definition in definitions:
+            self.register(definition)
 
-    def register(self, descriptor: CapabilityDescriptor) -> None:
-        """Register one descriptor without silent replacement."""
-        descriptor_value = cast(object, descriptor)
-        if not isinstance(descriptor_value, CapabilityDescriptor):
-            raise TypeError("registry accepts CapabilityDescriptor values only")
-        if descriptor.name in self._by_name:
-            raise ValueError(f"duplicate capability descriptor: '{descriptor.name}'")
-        self._by_name[descriptor.name] = descriptor
+    def register(self, definition: CapabilityDefinition) -> None:
+        """Register one immutable definition without silent replacement."""
+        definition_value = cast(object, definition)
+        if not isinstance(definition_value, CapabilityDefinition):
+            raise TypeError("registry accepts CapabilityDefinition values only")
+        capability_id = definition.capability_id
+        if capability_id in self._by_id:
+            raise ValueError(f"duplicate capability definition: '{capability_id}'")
+        self._by_id[capability_id] = definition
 
-    def get(self, name: str) -> CapabilityDescriptor:
-        """Return a descriptor by canonical capability name."""
-        name_value = cast(object, name)
-        if not isinstance(name_value, str):
-            raise UnknownCapabilityError("invalid")
+    def get(
+        self, capability_id: CapabilityId | str
+    ) -> CapabilityDefinition | None:
+        """Return a definition or None for an unknown valid identity."""
+        identity = normalize_capability_id(capability_id)
+        return self._by_id.get(identity)
+
+    def require(
+        self, capability_id: CapabilityId | str
+    ) -> CapabilityDefinition:
+        """Return a definition or raise a focused unknown-capability error."""
+        identity = normalize_capability_id(capability_id)
+        definition = self._by_id.get(identity)
+        if definition is None:
+            raise UnknownCapabilityError(identity.value)
+        return definition
+
+    def contains(self, capability_id: CapabilityId | str) -> bool:
+        """Return whether an identity has a registered definition."""
+        return self.get(capability_id) is not None
+
+    def all(self) -> tuple[CapabilityDefinition, ...]:
+        """Return definitions ordered by stable capability identity."""
+        return tuple(self._by_id[item] for item in sorted(self._by_id))
+
+    def ids(self) -> tuple[CapabilityId, ...]:
+        """Return typed identities in deterministic order."""
+        return tuple(sorted(self._by_id))
+
+    def by_tag(self, tag: str) -> tuple[CapabilityDefinition, ...]:
+        """Return definitions carrying one normalized descriptive tag."""
+        if not isinstance(cast(object, tag), str):
+            return ()
+        normalized = tag.strip().lower()
+        if not normalized:
+            return ()
+        return tuple(
+            definition
+            for definition in self.all()
+            if normalized in definition.tags
+        )
+
+    def producers_for(
+        self, state_key: PipelineStateKey | str
+    ) -> tuple[CapabilityDefinition, ...]:
+        """Return deterministic definitions that may provide one state key."""
         try:
-            return self._by_name[name]
-        except KeyError as error:
-            raise UnknownCapabilityError(name_value) from error
+            key = PipelineStateKey(state_key)
+        except (TypeError, ValueError):
+            return ()
+        return tuple(
+            definition
+            for definition in self.all()
+            if key in definition.provides
+        )
 
     @property
-    def descriptors(self) -> tuple[CapabilityDescriptor, ...]:
-        """Return descriptors sorted independently of registration order."""
-        return tuple(self._by_name[name] for name in sorted(self._by_name))
-
-    def producers_for(self, state_key: str) -> tuple[CapabilityDescriptor, ...]:
-        """Return deterministic descriptors that provide one state key."""
-        key = validate_state_key(state_key)
-        producers: dict[str, CapabilityDescriptor] = {}
-        for descriptor in self._by_name.values():
-            if key in descriptor.provides:
-                producers[descriptor.name] = descriptor
-        return tuple(producers[name] for name in sorted(producers))
+    def descriptors(self) -> tuple[CapabilityDefinition, ...]:
+        """Return the legacy immutable descriptor view."""
+        return self.all()

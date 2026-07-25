@@ -61,6 +61,39 @@ assert result.executed_capabilities == ("risk_intelligence",)
 Construction performs no external I/O. Inject `CapabilityDependencies` with
 fake typed ports for deterministic tests.
 
+## Capability Registry
+
+Typed capability definitions are the shared source for planning metadata and
+planned runtime output contracts. Factories remain separate and lazy.
+
+```python
+from redforge.planning import (
+    CapabilityDefinition,
+    CapabilityFactoryRegistry,
+    CapabilityId,
+    CapabilityRegistry,
+)
+from redforge.sdk import PipelineStateKey
+
+custom_id = CapabilityId("custom_discovery")
+definition = CapabilityDefinition(
+    capability_id=custom_id,
+    display_name="Custom Discovery",
+    description="Discovers custom asset records.",
+    version="1.0",
+    provides=(PipelineStateKey.SUBDOMAINS,),
+    tags=("passive", "recon"),
+)
+definitions = CapabilityRegistry((definition,))
+factories = CapabilityFactoryRegistry()
+factories.register(custom_id, CustomDiscoveryCapability)
+```
+
+`CustomDiscoveryCapability` is an application-defined `Capability` whose
+stable `name` is `custom_discovery`. See
+[Capability Registry v2](docs/capability-registry.md) for queries, default
+definitions, factory alignment, and legacy migration.
+
 ## Multi-Output State
 
 A capability may publish several typed state values from one execution. The

@@ -1,6 +1,11 @@
 """Tests for real RedForge planning declarations."""
 
-from redforge.planning import ExecutionPlanner, create_default_registry
+from redforge.planning import (
+    BUILTIN_CAPABILITY_IDS,
+    CapabilityId,
+    ExecutionPlanner,
+    create_default_registry,
+)
 from redforge.runtime.pipeline_state import PipelineStateKey
 
 
@@ -45,4 +50,20 @@ def test_full_risk_contract_uses_minimum_current_required_state_closure() -> Non
         "vulnerability_intelligence",
         "knowledge_graph",
         "risk_intelligence",
+    )
+
+
+def test_default_definitions_have_complete_stable_metadata() -> None:
+    registry = create_default_registry()
+
+    assert registry.ids() == BUILTIN_CAPABILITY_IDS
+    assert all(definition.display_name for definition in registry.all())
+    assert all(definition.description for definition in registry.all())
+    assert all(definition.version == "1.0" for definition in registry.all())
+    assert all(definition.tags for definition in registry.all())
+    assert registry.require(CapabilityId("http_probe")).provides == (
+        PipelineStateKey.ALIVE_HOSTS,
+    )
+    assert registry.require(CapabilityId("web_crawl")).requires == (
+        PipelineStateKey.ALIVE_HOSTS,
     )

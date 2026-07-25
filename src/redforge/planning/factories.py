@@ -26,67 +26,111 @@ from redforge.planning.errors import (
     InvalidCapabilityFactoryError,
     MissingCapabilityFactoryError,
 )
+from redforge.planning.registry import CapabilityRegistry
 from redforge.sdk.capability import Capability
+from redforge.sdk.capability_id import (
+    ASSET_INTELLIGENCE,
+    HOST_RESOLUTION,
+    HTTP_PROBE,
+    KNOWLEDGE_GRAPH,
+    RISK_INTELLIGENCE,
+    SUBDOMAIN_DISCOVERY,
+    TECHNOLOGY_DETECTION,
+    VULNERABILITY_INTELLIGENCE,
+    WEB_CRAWL,
+    CapabilityId,
+    normalize_capability_id,
+)
 
 type CapabilityFactory = Callable[[], Capability]
 
 
-def _valid_capability_name(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and bool(value)
-        and value == value.strip().lower()
-        and all(character.isalnum() or character == "_" for character in value)
-    )
-
-
 class CapabilityFactoryRegistry:
-    """Register and invoke one explicit factory per canonical capability name."""
+    """Register and invoke one explicit factory per typed capability identity."""
 
     def __init__(self) -> None:
-        self._factories: dict[str, CapabilityFactory] = {}
+        self._factories: dict[CapabilityId, CapabilityFactory] = {}
 
-    def register(self, name: str, factory: CapabilityFactory) -> None:
+    def register(
+        self,
+        capability_id: CapabilityId | str,
+        factory: CapabilityFactory,
+    ) -> None:
         """Register a callable factory without silent replacement."""
-        if not _valid_capability_name(name):
-            raise InvalidCapabilityFactoryError("invalid")
-        if name in self._factories:
-            raise InvalidCapabilityFactoryError(name)
+        try:
+            identity = normalize_capability_id(capability_id)
+        except (TypeError, ValueError):
+            raise InvalidCapabilityFactoryError("invalid") from None
+        if identity in self._factories:
+            raise InvalidCapabilityFactoryError(identity.value)
         if not callable(cast(object, factory)):
-            raise InvalidCapabilityFactoryError(name)
-        self._factories[name] = factory
+            raise InvalidCapabilityFactoryError(identity.value)
+        self._factories[identity] = factory
+
+    @property
+    def ids(self) -> tuple[CapabilityId, ...]:
+        """Return registered typed identities in deterministic order."""
+        return tuple(sorted(self._factories))
 
     @property
     def names(self) -> tuple[str, ...]:
-        """Return registered names in deterministic immutable order."""
-        return tuple(sorted(self._factories))
+        """Return the legacy serialized identity view."""
+        return tuple(item.value for item in self.ids)
 
-    def has(self, name: str) -> bool:
-        """Return whether a factory is registered for a canonical name."""
-        return name in self._factories
+    def has(self, capability_id: CapabilityId | str) -> bool:
+        """Return whether a factory is registered for a canonical identity."""
+        try:
+            identity = normalize_capability_id(capability_id)
+        except (TypeError, ValueError):
+            return False
+        return identity in self._factories
 
-    def create(self, name: str) -> Capability:
+    def create(self, capability_id: CapabilityId | str) -> Capability:
         """Create and validate one fresh runtime capability."""
         try:
-            factory = self._factories[name]
+            identity = normalize_capability_id(capability_id)
+        except (TypeError, ValueError):
+            raise MissingCapabilityFactoryError("invalid") from None
+        try:
+            factory = self._factories[identity]
         except KeyError:
-            raise MissingCapabilityFactoryError(name) from None
+            raise MissingCapabilityFactoryError(identity.value) from None
 
         try:
             candidate = cast(object, factory())
         except Exception:
-            raise InvalidCapabilityFactoryError(name, failed=True) from None
+            raise InvalidCapabilityFactoryError(
+                identity.value, failed=True
+            ) from None
         if not isinstance(candidate, Capability):
-            raise InvalidCapabilityFactoryError(name)
+            raise InvalidCapabilityFactoryError(identity.value)
         try:
             actual_name = cast(object, candidate.name)
         except Exception:
-            raise InvalidCapabilityFactoryError(name, failed=True) from None
-        if not _valid_capability_name(actual_name):
-            raise InvalidCapabilityFactoryError(name)
-        if actual_name != name:
-            raise CapabilityDescriptorMismatchError(name, "runtime capability name")
+            raise InvalidCapabilityFactoryError(
+                identity.value, failed=True
+            ) from None
+        try:
+            actual_id = normalize_capability_id(cast(str, actual_name))
+        except (TypeError, ValueError):
+            raise InvalidCapabilityFactoryError(identity.value) from None
+        if actual_id != identity:
+            raise CapabilityDescriptorMismatchError(
+                identity.value, "runtime capability identity"
+            )
         return candidate
+
+    def validate_against(self, definitions: CapabilityRegistry) -> None:
+        """Reject factories whose typed identities have no definition."""
+        unknown = tuple(
+            capability_id
+            for capability_id in self.ids
+            if not definitions.contains(capability_id)
+        )
+        if unknown:
+            raise CapabilityDescriptorMismatchError(
+                unknown[0].value, "definition registry identity"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,34 +181,34 @@ def create_default_factory_registry(
 
     registry = CapabilityFactoryRegistry()
     registry.register(
-        "subdomain_discovery",
+        SUBDOMAIN_DISCOVERY,
         lambda: SubdomainDiscovery(provider=configured.subdomain_provider),
     )
     registry.register(
-        "host_resolution",
+        HOST_RESOLUTION,
         lambda: HostResolutionCapability(resolver=configured.host_resolver),
     )
     registry.register(
-        "http_probe",
+        HTTP_PROBE,
         lambda: HttpProbeCapability(transport=configured.http_transport),
     )
     registry.register(
-        "web_crawl",
+        WEB_CRAWL,
         lambda: WebCrawlCapability(crawler=configured.web_crawler),
     )
     registry.register(
-        "technology_detection",
+        TECHNOLOGY_DETECTION,
         lambda: TechnologyDetectionCapability(
             detector=configured.technology_detector
         ),
     )
-    registry.register("asset_intelligence", AssetIntelligenceCapability)
+    registry.register(ASSET_INTELLIGENCE, AssetIntelligenceCapability)
     registry.register(
-        "vulnerability_intelligence",
+        VULNERABILITY_INTELLIGENCE,
         lambda: VulnerabilityIntelligenceCapability(
             provider=configured.vulnerability_provider
         ),
     )
-    registry.register("knowledge_graph", KnowledgeGraphCapability)
-    registry.register("risk_intelligence", RiskIntelligenceCapability)
+    registry.register(KNOWLEDGE_GRAPH, KnowledgeGraphCapability)
+    registry.register(RISK_INTELLIGENCE, RiskIntelligenceCapability)
     return registry

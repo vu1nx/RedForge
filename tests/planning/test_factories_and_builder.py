@@ -6,9 +6,11 @@ from typing import Any
 import pytest  # type: ignore[reportMissingImports]
 
 from redforge.planning import (
+    CapabilityDefinition,
     CapabilityDescriptor,
     CapabilityDescriptorMismatchError,
     CapabilityFactoryRegistry,
+    CapabilityId,
     CapabilityRegistry,
     ExecutionPlanner,
     InvalidCapabilityFactoryError,
@@ -18,7 +20,7 @@ from redforge.planning import (
     create_default_registry,
 )
 from redforge.runtime.pipeline_state import (
-    CAPABILITY_OUTPUT_KEYS,
+    CAPABILITY_OUTPUT_CONTRACTS,
     PipelineStateKey,
 )
 from redforge.sdk.capability import Capability
@@ -109,6 +111,7 @@ def test_factory_registry_has_deterministic_immutable_names() -> None:
     registry.register("a", lambda: FakeCapability("a"))
 
     assert registry.names == ("a", "z")
+    assert registry.ids == (CapabilityId("a"), CapabilityId("z"))
     assert isinstance(registry.names, tuple)
 
 
@@ -118,6 +121,39 @@ def test_factory_registry_rejects_duplicates() -> None:
 
     with pytest.raises(InvalidCapabilityFactoryError):
         registry.register("same", lambda: FakeCapability("same"))
+
+
+def test_factory_registry_is_lazy_and_returns_fresh_instances() -> None:
+    registry = CapabilityFactoryRegistry()
+    created: list[FakeCapability] = []
+
+    def create() -> Capability:
+        capability = FakeCapability("custom")
+        created.append(capability)
+        return capability
+
+    registry.register(CapabilityId("custom"), create)
+
+    assert registry.has(CapabilityId("custom"))
+    assert created == []
+    first = registry.create(CapabilityId("custom"))
+    second = registry.create(CapabilityId("custom"))
+    assert first is not second
+    assert created == [first, second]
+
+
+def test_factory_registry_rejects_non_callable_factory() -> None:
+    registry = CapabilityFactoryRegistry()
+
+    with pytest.raises(InvalidCapabilityFactoryError):
+        registry.register("invalid", object())  # type: ignore[arg-type]
+
+
+def test_factory_registry_unknown_lookup_is_focused() -> None:
+    registry = CapabilityFactoryRegistry()
+
+    with pytest.raises(MissingCapabilityFactoryError):
+        registry.create(CapabilityId("missing"))
 
 
 @pytest.mark.parametrize(
@@ -222,6 +258,7 @@ def test_builder_rejects_plan_from_incompatible_descriptor_registry() -> None:
     del source
     incompatible = _chain_registry()
     descriptor = incompatible.get("c")
+    assert descriptor is not None
     incompatible = CapabilityRegistry()
     incompatible.register(
         CapabilityDescriptor(
@@ -260,9 +297,12 @@ def test_every_default_descriptor_factory_and_runtime_mapping_align() -> None:
 
     assert factories.names == tuple(descriptor.name for descriptor in descriptors.descriptors)
     for descriptor in descriptors.descriptors:
-        capability = factories.create(descriptor.name)
+        capability = factories.create(descriptor.capability_id)
         assert capability.name == descriptor.name
-        assert descriptor.provides == (CAPABILITY_OUTPUT_KEYS[descriptor.name],)
+        assert (
+            descriptor.provides
+            == CAPABILITY_OUTPUT_CONTRACTS[descriptor.capability_id]
+        )
 
 
 def test_repeated_builds_create_distinct_capability_instances() -> None:
@@ -327,3 +367,23 @@ def test_builder_accepts_multi_output_descriptor_and_builds_fresh_instances() ->
     assert first.executed_capabilities == second.executed_capabilities == ("multi",)
     assert first.context.get(PipelineStateKey.HOSTS) == ("host",)
     assert first.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
+    assert first.executions[0].capability_id == CapabilityId("multi")
+
+
+def test_factory_registry_rejects_unknown_definition_alignment() -> None:
+    definitions = CapabilityRegistry(
+        (
+            CapabilityDefinition(
+                capability_id="known",
+                display_name="Known",
+                description="Known contract.",
+                version="1.0",
+                provides=(PipelineStateKey.HOSTS,),
+            ),
+        )
+    )
+    factories = CapabilityFactoryRegistry()
+    factories.register("unknown", lambda: FakeCapability("unknown"))
+
+    with pytest.raises(CapabilityDescriptorMismatchError):
+        factories.validate_against(definitions)

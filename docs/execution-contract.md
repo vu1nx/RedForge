@@ -77,3 +77,8 @@ and `last_result=None`. For non-empty plans, history contains only capabilities
 that actually ran. A `PARTIAL` result publishes usable data and permits the
 next planned step; `FAILURE` or `ERROR` stops the remaining plan under the same
 sequential policy as manually constructed pipelines.
+
+Planned steps and configured runtime instances are associated through typed
+`CapabilityId` values from [Capability Registry v2](capability-registry.md).
+Execution history retains existing serialized names and records the typed ID
+for planned or explicitly configured executions.

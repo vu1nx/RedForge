@@ -25,20 +25,36 @@ from redforge.planning.factories import (
     create_default_factory_registry,
 )
 from redforge.planning.models import (
+    CapabilityDefinition,
     CapabilityDescriptor,
     ExecutionPlan,
     ExecutionStep,
 )
 from redforge.planning.planner import ExecutionPlanner
 from redforge.planning.registry import CapabilityRegistry
+from redforge.sdk.capability_id import (
+    ASSET_INTELLIGENCE,
+    BUILTIN_CAPABILITY_IDS,
+    HOST_RESOLUTION,
+    HTTP_PROBE,
+    KNOWLEDGE_GRAPH,
+    RISK_INTELLIGENCE,
+    SUBDOMAIN_DISCOVERY,
+    TECHNOLOGY_DETECTION,
+    VULNERABILITY_INTELLIGENCE,
+    WEB_CRAWL,
+    CapabilityId,
+)
 
 __all__ = [
     "AmbiguousProducerError",
     "CapabilityDependencies",
+    "CapabilityDefinition",
     "CapabilityDescriptor",
     "CapabilityDescriptorMismatchError",
     "CapabilityFactory",
     "CapabilityFactoryRegistry",
+    "CapabilityId",
     "CapabilityRegistry",
     "DependencyCycleError",
     "ExecutionPlan",
@@ -53,6 +69,16 @@ __all__ = [
     "PlannedExecution",
     "PlanningError",
     "UnknownCapabilityError",
+    "ASSET_INTELLIGENCE",
+    "BUILTIN_CAPABILITY_IDS",
+    "HOST_RESOLUTION",
+    "HTTP_PROBE",
+    "KNOWLEDGE_GRAPH",
+    "RISK_INTELLIGENCE",
+    "SUBDOMAIN_DISCOVERY",
+    "TECHNOLOGY_DETECTION",
+    "VULNERABILITY_INTELLIGENCE",
+    "WEB_CRAWL",
     "create_default_factory_registry",
     "create_default_planned_execution",
     "create_default_registry",

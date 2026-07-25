@@ -23,3 +23,7 @@ class Context:
 
     metadata: dict[str, Any] = field(default_factory=dict)  # type: ignore[reportUnknownVariableType]
     """Additional metadata about the execution context."""
+
+    def available_state_keys(self) -> tuple[str, ...]:
+        """Return state keys that are present, independently of value truthiness."""
+        return tuple(sorted(self.state))

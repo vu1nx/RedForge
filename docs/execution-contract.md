@@ -58,3 +58,16 @@ External capabilities receive typed results through injected ports. Expected
 sanitized adapter failures become `FAILURE` or item-level `PARTIAL`; invalid
 port returns and unexpected defects become `ERROR`. Failure/error adapter data
 is retained only in execution history and is not published as valid state.
+
+The [Execution Planner integration](execution-planner.md) preserves this
+authority. `PipelineBuilder` translates validated immutable plan steps into a
+normal pipeline but does not execute it. `PlannedExecution` supplies the
+caller's existing `Context` to that pipeline, so present state—including valid
+empty typed values—can satisfy planning dependencies and remains available to
+runtime capabilities.
+
+An empty pipeline over an existing context returns `SUCCESS`, no executions,
+and `last_result=None`. For non-empty plans, history contains only capabilities
+that actually ran. A `PARTIAL` result publishes usable data and permits the
+next planned step; `FAILURE` or `ERROR` stops the remaining plan under the same
+sequential policy as manually constructed pipelines.

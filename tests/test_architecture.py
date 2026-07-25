@@ -51,3 +51,125 @@ def test_vulnerability_capability_does_not_reference_nvd_payload_keys() -> None:
         "cvssMetricV31",
     ):
         assert f'"{provider_key}"' not in source
+
+
+def test_planner_core_is_pure_and_does_not_import_execution_boundaries() -> None:
+    forbidden = (
+        "redforge.adapters",
+        "redforge.capabilities",
+        "redforge.runtime.pipeline",
+        "socket",
+        "urllib",
+        "httpx",
+        "requests",
+    )
+    for filename in (
+        "models.py",
+        "registry.py",
+        "default_registry.py",
+        "planner.py",
+    ):
+        path = _SOURCE_ROOT / "planning" / filename
+        imports = _imports(path)
+        assert not any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for name in imports
+            for prefix in forbidden
+        ), path
+
+
+def test_domain_does_not_import_planning_or_runtime() -> None:
+    for path in (_SOURCE_ROOT / "domain").glob("*.py"):
+        assert not any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for name in _imports(path)
+            for prefix in ("redforge.planning", "redforge.runtime")
+        ), path
+
+
+def test_execution_planner_has_no_execution_or_pipeline_builder_methods() -> None:
+    from redforge.planning import ExecutionPlanner
+
+    assert not hasattr(ExecutionPlanner, "execute")
+    assert not hasattr(ExecutionPlanner, "run")
+    assert not hasattr(ExecutionPlanner, "build_pipeline")
+
+
+def test_builder_has_no_external_transports_or_capability_name_branching() -> None:
+    path = _SOURCE_ROOT / "planning" / "builder.py"
+    imports = _imports(path)
+    forbidden = ("socket", "subprocess", "urllib", "httpx", "requests")
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in forbidden
+    )
+    source = path.read_text(encoding="utf-8")
+    assert "if step.capability_name ==" not in source
+    assert "elif step.capability_name ==" not in source
+
+
+def test_descriptor_and_factory_registries_remain_separate() -> None:
+    from redforge.planning import (
+        CapabilityDescriptor,
+        CapabilityFactoryRegistry,
+        CapabilityRegistry,
+    )
+
+    descriptor_registry = CapabilityRegistry()
+    descriptor_registry.register(
+        CapabilityDescriptor(name="a", provides=("hosts",))
+    )
+    factory_registry = CapabilityFactoryRegistry()
+
+    assert descriptor_registry.descriptors == (
+        CapabilityDescriptor(name="a", provides=("hosts",)),
+    )
+    assert factory_registry.names == ()
+    assert not hasattr(descriptor_registry, "create")
+    assert not hasattr(factory_registry, "descriptors")
+
+
+def test_execution_plan_has_no_runtime_capability_fields() -> None:
+    from dataclasses import fields
+
+    from redforge.planning import ExecutionPlan
+
+    assert tuple(field.name for field in fields(ExecutionPlan)) == (
+        "goals",
+        "available_state",
+        "steps",
+    )
+
+
+def test_planning_modules_do_not_import_network_implementations() -> None:
+    forbidden = ("socket", "subprocess", "urllib", "httpx", "requests")
+    for path in (_SOURCE_ROOT / "planning").glob("*.py"):
+        imports = _imports(path)
+        assert not any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for name in imports
+            for prefix in forbidden
+        ), path
+
+
+def test_factory_module_has_no_global_mutable_registry_singleton() -> None:
+    path = _SOURCE_ROOT / "planning" / "factories.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    module_assignments = (
+        node for node in tree.body if isinstance(node, (ast.Assign, ast.AnnAssign))
+    )
+    for assignment in module_assignments:
+        value = assignment.value
+        assert not (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "CapabilityFactoryRegistry"
+        )
+
+
+def test_execution_facade_does_not_invoke_capabilities_directly() -> None:
+    path = _SOURCE_ROOT / "planning" / "execution.py"
+    source = path.read_text(encoding="utf-8")
+    assert ".execute(context)" not in source
+    assert ".run(context)" in source

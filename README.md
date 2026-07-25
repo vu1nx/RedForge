@@ -31,6 +31,36 @@ execution history, usable state propagation, and sanitized error boundaries.
 See [Execution Contract](docs/execution-contract.md) for status precedence,
 continuation rules, and defensive runtime behavior.
 
+## Planned Execution
+
+RedForge can deterministically plan goals, build fresh capability instances
+through explicit factories, and execute them through the existing sequential
+runtime. See [Execution Planning and Runtime Integration](docs/execution-planner.md).
+
+```python
+from redforge.domain.knowledge_graph import KnowledgeGraph
+from redforge.planning import create_default_planned_execution
+from redforge.runtime.pipeline_state import PipelineStateKey
+from redforge.sdk.context import Context
+
+context = Context(
+    target_id="example.com",
+    state={PipelineStateKey.KNOWLEDGE_GRAPH: KnowledgeGraph()},
+)
+execution = create_default_planned_execution()
+plan = execution.plan(
+    goals=(PipelineStateKey.RISK_INTELLIGENCE,),
+    context=context,
+)
+result = execution.execute(plan=plan, context=context)
+
+assert plan.required_capabilities == ("risk_intelligence",)
+assert result.executed_capabilities == ("risk_intelligence",)
+```
+
+Construction performs no external I/O. Inject `CapabilityDependencies` with
+fake typed ports for deterministic tests.
+
 ## Adapter Boundaries
 
 External capabilities depend on focused typed ports and consume immutable,

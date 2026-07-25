@@ -1,5 +1,6 @@
 """Sequential pipeline for capability execution."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeGuard, cast
 
@@ -75,9 +76,12 @@ class Pipeline:
     Context.state for downstream capabilities.
     """
 
-    def __init__(self) -> None:
-        """Initialize an empty pipeline."""
+    def __init__(self, *, output_keys: Mapping[str, str] | None = None) -> None:
+        """Initialize an empty pipeline with an isolated output-key mapping."""
         self._capabilities: list[Capability] = []
+        self._output_keys = dict(
+            CAPABILITY_OUTPUT_KEYS if output_keys is None else output_keys
+        )
 
     def add(self, capability: Capability) -> None:
         """Register a capability for sequential execution.
@@ -89,18 +93,21 @@ class Pipeline:
             raise ValueError(f"duplicate capability name: '{capability.name}'")
         self._capabilities.append(capability)
 
-    def run(self, target: Target | str) -> PipelineResult:
+    def run(self, target: Target | str | Context) -> PipelineResult:
         """Execute registered capabilities sequentially.
 
         Args:
-            target: Target identifier or Target domain object.
+            target: Target identifier, Target domain object, or existing Context.
 
         Returns:
             PipelineResult containing final status, context, and execution details.
         """
-        target_id = target.identifier if isinstance(target, Target) else target
-        state: dict[str, Any] = {}
-        context = Context(target_id=target_id, state=state)
+        if isinstance(target, Context):
+            context = target
+        else:
+            target_id = target.identifier if isinstance(target, Target) else target
+            context = Context(target_id=target_id)
+        state = context.state
         execution_order = tuple(capability.name for capability in self._capabilities)
 
         if not self._capabilities:
@@ -153,9 +160,7 @@ class Pipeline:
             aggregate_status = combine_status(aggregate_status, result.status)
 
             if result.status in {Status.SUCCESS, Status.PARTIAL}:
-                state_key = CAPABILITY_OUTPUT_KEYS.get(
-                    capability.name, capability.name
-                )
+                state_key = self._output_keys.get(capability.name, capability.name)
                 state[state_key] = result.data
 
             if result.status in {Status.FAILURE, Status.ERROR}:

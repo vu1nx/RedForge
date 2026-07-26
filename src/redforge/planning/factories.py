@@ -8,8 +8,9 @@ from redforge.adapters.host_resolver import HostResolver
 from redforge.adapters.httpx import HttpProbeTransport
 from redforge.adapters.katana import WebCrawler
 from redforge.adapters.nvd import VulnerabilityProvider
-from redforge.adapters.subfinder import SubdomainProvider
+from redforge.adapters.subfinder import SubfinderSubdomainProvider
 from redforge.adapters.technology_detection import TechnologyDetector
+from redforge.adapters.tool_runner import LocalSubprocessToolRunner
 from redforge.capabilities.asset_intelligence import AssetIntelligenceCapability
 from redforge.capabilities.host_resolution import HostResolutionCapability
 from redforge.capabilities.http_probe import HttpProbeCapability
@@ -41,6 +42,8 @@ from redforge.sdk.capability_id import (
     CapabilityId,
     normalize_capability_id,
 )
+from redforge.sdk.subdomain_discovery import SubdomainProvider
+from redforge.sdk.tool import ToolRunner
 
 type CapabilityFactory = Callable[[], Capability]
 
@@ -143,6 +146,7 @@ class CapabilityDependencies:
     web_crawler: WebCrawler | None = None
     technology_detector: TechnologyDetector | None = None
     vulnerability_provider: VulnerabilityProvider | None = None
+    tool_runner: ToolRunner | None = None
 
 
 def create_default_factory_registry(
@@ -154,6 +158,7 @@ def create_default_factory_registry(
     web_crawler: WebCrawler | None = None,
     technology_detector: TechnologyDetector | None = None,
     vulnerability_provider: VulnerabilityProvider | None = None,
+    tool_runner: ToolRunner | None = None,
 ) -> CapabilityFactoryRegistry:
     """Return lazy factories for every executable default descriptor."""
     configured = dependencies or CapabilityDependencies(
@@ -163,6 +168,7 @@ def create_default_factory_registry(
         web_crawler=web_crawler,
         technology_detector=technology_detector,
         vulnerability_provider=vulnerability_provider,
+        tool_runner=tool_runner,
     )
     if dependencies is not None and any(
         item is not None
@@ -173,6 +179,7 @@ def create_default_factory_registry(
             web_crawler,
             technology_detector,
             vulnerability_provider,
+            tool_runner,
         )
     ):
         raise ValueError(
@@ -182,7 +189,17 @@ def create_default_factory_registry(
     registry = CapabilityFactoryRegistry()
     registry.register(
         SUBDOMAIN_DISCOVERY,
-        lambda: SubdomainDiscovery(provider=configured.subdomain_provider),
+        lambda: SubdomainDiscovery(
+            provider=(
+                configured.subdomain_provider
+                or SubfinderSubdomainProvider(
+                    runner=(
+                        configured.tool_runner
+                        or LocalSubprocessToolRunner()
+                    )
+                )
+            )
+        ),
     )
     registry.register(
         HOST_RESOLUTION,

@@ -125,6 +125,32 @@ Arguments remain separate process values; the local runner never invokes a
 shell. See [External Tool Execution](docs/tool-execution.md) for environment,
 diagnostic, truncation, adapter-mapping, and testing policies.
 
+### Subfinder passive discovery
+
+Subfinder is the default replaceable provider for the
+`subdomain_discovery` capability. It uses the tool-runner boundary; it is not a
+capability identity or an additional planner step.
+
+```python
+from redforge.adapters import (
+    SUBFINDER_TOOL,
+    LocalSubprocessToolRunner,
+    SubfinderConfig,
+    SubfinderSubdomainProvider,
+)
+
+provider = SubfinderSubdomainProvider(
+    runner=LocalSubprocessToolRunner(),
+    definition=SUBFINDER_TOOL,
+    config=SubfinderConfig(),
+)
+result = provider.discover("example.com")
+```
+
+This example uses a documentation-only placeholder target. RedForge does not
+install Subfinder or configure its provider credentials. See
+[Subfinder Passive Recon Integration](docs/subfinder-integration.md).
+
 ## Multi-Output State
 
 A capability may publish several typed state values from one execution. The

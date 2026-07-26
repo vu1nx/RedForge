@@ -411,3 +411,78 @@ def test_no_global_mutable_tool_registry_or_runner() -> None:
 def test_fake_tool_runner_has_no_subprocess_dependency() -> None:
     imports = _imports(_SOURCE_ROOT / "testing" / "tool_runner.py")
     assert "subprocess" not in imports
+
+
+def test_subdomain_capability_is_tool_and_provider_implementation_agnostic() -> None:
+    path = _SOURCE_ROOT / "capabilities" / "subdomain_discovery.py"
+    imports = _imports(path)
+    source = path.read_text(encoding="utf-8")
+
+    assert "subprocess" not in imports
+    assert "redforge.adapters" not in imports
+    assert "redforge.sdk.tool" not in imports
+    assert "Subfinder" not in source
+    assert "ToolRunner" not in source
+
+
+def test_subfinder_adapter_uses_only_the_tool_runner_port() -> None:
+    path = _SOURCE_ROOT / "adapters" / "subfinder.py"
+    imports = _imports(path)
+    source = path.read_text(encoding="utf-8")
+
+    assert "redforge.sdk.tool" in imports
+    assert "subprocess" not in imports
+    assert "redforge.adapters.tool_runner" not in imports
+    assert "redforge.runtime" not in imports
+    assert "redforge.runtime.pipeline" not in imports
+    assert "redforge.sdk.context" not in imports
+    assert "LocalSubprocessToolRunner" not in source
+    assert "StatePublication" not in source
+    assert "shell=True" not in source
+    assert "os.system(" not in source
+
+
+def test_planner_and_builder_have_no_subfinder_specific_behavior() -> None:
+    for filename in ("planner.py", "builder.py"):
+        source = (_SOURCE_ROOT / "planning" / filename).read_text(
+            encoding="utf-8"
+        )
+        assert "subfinder" not in source.lower()
+
+
+def test_tool_definition_has_no_capability_definition_dependency() -> None:
+    source = (_SOURCE_ROOT / "sdk" / "tool.py").read_text(encoding="utf-8")
+    assert "CapabilityDefinition" not in source
+    assert "CapabilityId" not in source
+
+
+def test_subfinder_composition_has_no_global_runner_or_registry() -> None:
+    paths = (
+        _SOURCE_ROOT / "adapters" / "default_tools.py",
+        _SOURCE_ROOT / "planning" / "factories.py",
+    )
+    forbidden_constructors = {"ToolRegistry", "LocalSubprocessToolRunner"}
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        assignments = (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+        )
+        for assignment in assignments:
+            value = assignment.value
+            assert not (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id in forbidden_constructors
+            )
+
+
+def test_subfinder_adapter_has_no_install_or_update_operation() -> None:
+    source = (_SOURCE_ROOT / "adapters" / "subfinder.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"-disable-update-check"' in source
+    for forbidden_argument in ('"-update"', '"-up"', '"-install"', '"-o"', '"-oD"'):
+        assert forbidden_argument not in source

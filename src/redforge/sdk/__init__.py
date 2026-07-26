@@ -25,6 +25,11 @@ from redforge.sdk.capability_id import (
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, StatePublication, Status
 from redforge.sdk.state import PipelineStateKey
+from redforge.sdk.subdomain_discovery import (
+    SubdomainDiscoveryResult,
+    SubdomainDiscoveryStatus,
+    SubdomainProvider,
+)
 from redforge.sdk.tool import (
     ToolDefinition,
     ToolExecutionResult,
@@ -46,6 +51,9 @@ __all__ = [
     "Result",
     "StatePublication",
     "Status",
+    "SubdomainDiscoveryResult",
+    "SubdomainDiscoveryStatus",
+    "SubdomainProvider",
     "ToolDefinition",
     "ToolExecutionResult",
     "ToolExecutionStatus",

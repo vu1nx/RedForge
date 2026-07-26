@@ -8,12 +8,12 @@ from redforge.adapters.host_resolver import (
     HostResolverError,
     StandardHostResolver,
 )
-from redforge.adapters.subfinder import SubdomainDiscoveryResult
 from redforge.domain.host import Host, HostAddress, HostResolution, IPVersion
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, Status
+from redforge.sdk.subdomain_discovery import SubdomainDiscoveryResult
 
 
 def normalize_hostname(value: str) -> str:

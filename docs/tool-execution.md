@@ -23,8 +23,10 @@ ToolRunner
 Capabilities model security responsibilities. Tools are replaceable execution
 providers.
 
-This milestone provides the framework only. It does not add, download, or
-configure a security tool and does not change the capability graph.
+The first concrete provider is the passive
+[Subfinder integration](subfinder-integration.md). The framework itself still
+does not download, install, or configure external tools and does not change the
+capability graph.
 
 ## Identity, definitions, and registry
 
@@ -163,6 +165,11 @@ Tool ERROR                   -> Capability ERROR
 Adapters must sanitize capability-facing messages and must not copy full tool
 output into errors or logs.
 
+`SubfinderSubdomainProvider` is the reference implementation of this boundary:
+it builds a narrow immutable invocation, consumes bounded JSONL output, and
+maps tool outcomes into a domain-level `SubdomainDiscoveryResult`. Neither the
+generic runner nor the capability knows how Subfinder output is shaped.
+
 ## Deterministic testing
 
 `FakeToolRunner` queues immutable `ToolExecutionResult` values by `ToolId` and
@@ -172,3 +179,6 @@ does not import or call subprocess.
 
 Portable local-runner tests use `sys.executable`; they require no network or
 installed security tooling. Future adapter tests should prefer the fake.
+
+Subfinder unit and planned-execution tests use `FakeToolRunner`; ordinary test
+runs therefore require neither a Subfinder binary nor network access.

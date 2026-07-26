@@ -6,7 +6,6 @@ from typing import cast
 import pytest  # type: ignore[reportMissingImports]
 
 from redforge.adapters.host_resolver import HostResolverError
-from redforge.adapters.subfinder import SubdomainDiscoveryResult
 from redforge.capabilities.host_resolution import (
     HostResolutionCapability,
     normalize_hostname,
@@ -15,6 +14,7 @@ from redforge.domain.host import HostResolution, IPVersion
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.context import Context
 from redforge.sdk.result import Status
+from redforge.sdk.subdomain_discovery import SubdomainDiscoveryResult
 
 
 @dataclass
@@ -142,7 +142,14 @@ def test_mixed_success_invalid_unresolved_and_malformed_is_partial() -> None:
 
     result = _execute(
         resolver,
-        {"subdomains": ["missing.example", "https://bad.example", "good.example", 42]},
+        {
+            "subdomains": [
+                "missing.example",
+                "https://bad.example",
+                "good.example",
+                "another.example/path",
+            ]
+        },
     )
 
     assert result.status == Status.PARTIAL

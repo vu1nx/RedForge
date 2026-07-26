@@ -88,3 +88,10 @@ values. A tool adapter consumes `ToolExecutionResult`, parses domain output,
 and chooses the appropriate capability status. This preserves existing
 `PARTIAL`, `FAILURE`, `ERROR`, publication, and execution-history semantics.
 See [External Tool Execution](tool-execution.md).
+
+For passive subdomain discovery, complete and partial usable provider results
+publish one immutable `SUBDOMAINS` value atomically. A successful empty
+enumeration publishes `()`. Provider failure, unavailable execution, and
+operational error publish nothing; the existing sequential stop rules apply.
+One Subfinder invocation remains one `subdomain_discovery` history entry. See
+[Subfinder Passive Recon Integration](subfinder-integration.md).

@@ -1,94 +1,99 @@
-"""Subdomain discovery capability using Subfinder."""
+"""Tool-agnostic subdomain discovery capability."""
 
+from dataclasses import replace
 from typing import cast
 
-from redforge.adapters.errors import AdapterError
-from redforge.adapters.subfinder import (
-    SubdomainDiscoveryResult,
-    SubdomainProvider,
-    SubfinderAdapter,
-)
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, Status
+from redforge.sdk.subdomain_discovery import (
+    SubdomainDiscoveryResult,
+    SubdomainDiscoveryStatus,
+    SubdomainProvider,
+)
+
+
+class _UnavailableSubdomainProvider:
+    """Safe manual-construction default with no external execution."""
+
+    def discover(self, domain: str) -> SubdomainDiscoveryResult:
+        del domain
+        return SubdomainDiscoveryResult(
+            status=SubdomainDiscoveryStatus.UNAVAILABLE,
+            message="Subdomain discovery provider is unavailable.",
+        )
 
 
 class SubdomainDiscovery(Capability):
-    """Subdomain discovery capability using ProjectDiscovery Subfinder.
+    """Discover subdomains through an injected replaceable domain provider."""
 
-    This capability discovers subdomains for a target domain using the
-    Subfinder external tool through the adapter pattern.
-    """
-
-    def __init__(
-        self,
-        binary_path: str = "subfinder",
-        *,
-        provider: SubdomainProvider | None = None,
-    ) -> None:
-        """Initialize the subdomain discovery capability.
-
-        Args:
-            binary_path: Path to the Subfinder binary (default: "subfinder").
-        """
-        self._provider = provider or SubfinderAdapter(binary_path=binary_path)
+    def __init__(self, *, provider: SubdomainProvider | None = None) -> None:
+        self._provider = provider or _UnavailableSubdomainProvider()
 
     def execute(self, context: Context) -> Result[SubdomainDiscoveryResult]:
-        """Execute subdomain discovery.
-
-        Args:
-            context: Runtime context containing the target domain.
-
-        Returns:
-            Result containing discovered subdomains or error information.
-        """
-        target_id = context.target_id
-
+        """Run one provider call and map its domain status to runtime status."""
         try:
-            response = cast(object, self._provider.discover(target_id))
-        except AdapterError:
-            return Result(
-                status=Status.FAILURE,
-                errors=["Subdomain provider is unavailable"],
-                data=SubdomainDiscoveryResult(),
-            )
+            response = cast(object, self._provider.discover(context.target_id))
         except Exception:
-            return Result(
-                status=Status.ERROR,
-                errors=["Subdomain provider failed with an unexpected execution error"],
-                data=SubdomainDiscoveryResult(),
+            return self._error_result(
+                "Subdomain provider failed with an unexpected execution error"
             )
         if not isinstance(response, SubdomainDiscoveryResult):
-            return Result(
-                status=Status.ERROR,
-                errors=["Subdomain provider returned an invalid result"],
-                data=SubdomainDiscoveryResult(),
+            return self._error_result(
+                "Subdomain provider returned an invalid result"
             )
-        response_hostnames = cast(object, response.hostnames)
-        if not isinstance(response_hostnames, tuple) or not all(
-            isinstance(item, str) and item
-            for item in cast(tuple[object, ...], response_hostnames)
-        ):
-            return Result(
-                status=Status.ERROR,
-                errors=["Subdomain provider returned an invalid result"],
-                data=SubdomainDiscoveryResult(),
-            )
-        hostnames = tuple(
-            sorted(set(cast(tuple[str, ...], response_hostnames)))
+
+        hostnames = tuple(sorted(set(response.hostnames)))
+        output = replace(response, hostnames=hostnames)
+        provider_status = response.status
+        if provider_status is SubdomainDiscoveryStatus.SUCCESS:
+            status = Status.SUCCESS
+        elif provider_status is SubdomainDiscoveryStatus.PARTIAL:
+            status = Status.PARTIAL if hostnames else Status.FAILURE
+        elif provider_status is SubdomainDiscoveryStatus.FAILURE:
+            status = Status.FAILURE
+        else:
+            status = Status.ERROR
+
+        errors = (
+            []
+            if status is Status.SUCCESS
+            else [
+                response.message
+                or (
+                    "Subdomain discovery completed with partial findings"
+                    if status is Status.PARTIAL
+                    else "Subdomain discovery failed"
+                )
+            ]
         )
-        output = SubdomainDiscoveryResult(hostnames=hostnames)
         return Result(
-            status=Status.SUCCESS,
+            status=status,
             data=output,
-            metadata={"count": len(hostnames), "target_id": target_id},
+            errors=errors,
+            metadata={
+                "count": len(hostnames),
+                "target_id": context.target_id,
+                "provider_status": provider_status.value,
+                "malformed_record_count": response.malformed_record_count,
+                "out_of_scope_count": response.out_of_scope_count,
+                "duplicate_count": response.duplicate_count,
+                "truncated": response.truncated,
+            },
+        )
+
+    @staticmethod
+    def _error_result(message: str) -> Result[SubdomainDiscoveryResult]:
+        return Result(
+            status=Status.ERROR,
+            errors=[message],
+            data=SubdomainDiscoveryResult(
+                status=SubdomainDiscoveryStatus.ERROR,
+                message=message,
+            ),
         )
 
     @property
     def name(self) -> str:
-        """Get the name of the capability.
-
-        Returns:
-            The capability name.
-        """
+        """Return the stable capability identity."""
         return "subdomain_discovery"

@@ -132,3 +132,9 @@ providers. `CapabilityDefinition` therefore never contains an executable,
 `ToolDefinition`, or runner. A future adapter may select one or several
 registered `ToolId` values while continuing to implement the same capability
 contract. See [External Tool Execution](tool-execution.md).
+
+The concrete first example is `CapabilityId("subdomain_discovery")`, currently
+served by `ToolId("subfinder")`. Plans and execution history continue to record
+only the capability identity; changing its provider does not change dependency
+resolution or add a tool-shaped plan step. See
+[Subfinder Passive Recon Integration](subfinder-integration.md).

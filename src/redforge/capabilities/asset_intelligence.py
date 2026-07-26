@@ -5,7 +5,6 @@ from ipaddress import ip_address
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-from redforge.adapters.subfinder import SubdomainDiscoveryResult
 from redforge.domain.asset import Asset
 from redforge.domain.asset_association import AssetAssociation
 from redforge.domain.asset_intelligence import AssetIntelligence
@@ -16,6 +15,7 @@ from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, Status
+from redforge.sdk.subdomain_discovery import SubdomainDiscoveryResult
 
 
 @dataclass(slots=True)

@@ -3,6 +3,7 @@
 This package contains adapters for external tools and services.
 """
 
+from redforge.adapters.default_tools import create_default_tool_registry
 from redforge.adapters.errors import (
     AdapterConfigurationError,
     AdapterError,
@@ -22,9 +23,13 @@ from redforge.adapters.katana import (
 )
 from redforge.adapters.nvd import NvdAdapter, VulnerabilityProvider
 from redforge.adapters.subfinder import (
+    SUBFINDER_TOOL,
+    SUBFINDER_TOOL_ID,
     SubdomainDiscoveryResult,
+    SubdomainDiscoveryStatus,
     SubdomainProvider,
-    SubfinderAdapter,
+    SubfinderConfig,
+    SubfinderSubdomainProvider,
 )
 from redforge.adapters.technology_detection import (
     TechnologyDetectionAdapter,
@@ -39,6 +44,7 @@ __all__ = [
     "AdapterError",
     "AdapterResponseError",
     "AdapterUnavailableError",
+    "create_default_tool_registry",
     "HostResolver",
     "HttpProbeAdapterResult",
     "HttpProbeTransport",
@@ -47,8 +53,12 @@ __all__ = [
     "LocalSubprocessToolRunner",
     "NvdAdapter",
     "SubdomainDiscoveryResult",
+    "SubdomainDiscoveryStatus",
     "SubdomainProvider",
-    "SubfinderAdapter",
+    "SUBFINDER_TOOL",
+    "SUBFINDER_TOOL_ID",
+    "SubfinderConfig",
+    "SubfinderSubdomainProvider",
     "TechnologyDetectionAdapter",
     "TechnologyDetectionResult",
     "TechnologyDetector",

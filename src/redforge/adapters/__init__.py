@@ -23,7 +23,11 @@ from redforge.adapters.httpx import (
     HttpxProbeProvider,
 )
 from redforge.adapters.katana import (
+    KATANA_TOOL,
+    KATANA_TOOL_ID,
     KatanaAdapter,
+    KatanaConfig,
+    KatanaWebCrawlProvider,
     WebCrawlAdapterResult,
     WebCrawler,
 )
@@ -62,6 +66,10 @@ __all__ = [
     "HttpxProbeProvider",
     "StandardHostResolver",
     "KatanaAdapter",
+    "KATANA_TOOL",
+    "KATANA_TOOL_ID",
+    "KatanaConfig",
+    "KatanaWebCrawlProvider",
     "LocalSubprocessToolRunner",
     "NvdAdapter",
     "SubdomainDiscoveryResult",

@@ -59,7 +59,7 @@ class FakeHttpTransport:
 class FakeCrawler:
     """Return one deterministic endpoint without invoking a binary."""
 
-    def crawl(self, hosts: tuple[str, ...]) -> WebCrawlAdapterResult:  # noqa: ARG002
+    def crawl(self, hosts: tuple[Host, ...]) -> WebCrawlAdapterResult:  # noqa: ARG002
         return WebCrawlAdapterResult(endpoints=(Endpoint("app.example.com", 443, "https", "/"),))
 
 

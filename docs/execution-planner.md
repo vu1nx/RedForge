@@ -125,6 +125,10 @@ Planning either or both outputs creates one capability step. `ENDPOINTS`
 remains crawler path/resource evidence, so the crawl and technology-detection
 dependency chain is unchanged.
 
+Katana is only the default provider behind `web_crawl`. It is not a capability
+or plan step. Replacing the provider does not change the graph, and
+technology detection continues to depend on crawler `ENDPOINTS`.
+
 `create_default_planned_execution()` assembles the default descriptor registry,
 planner, factory registry, builder, and facade. Tests can supply
 `CapabilityDependencies` with fake ports; no live network, DNS, or external

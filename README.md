@@ -203,6 +203,33 @@ http_endpoints = pipeline_result.context.get(
 Both values are immutable tuples. Endpoint bodies and raw headers are not
 retained.
 
+### Katana web crawling
+
+Katana is the default replaceable provider for the `web_crawl` capability. It
+uses the same external-tool runner boundary as Subfinder and HTTPX and remains
+separate from the capability identity and execution plan.
+
+```python
+from redforge.adapters import (
+    KATANA_TOOL,
+    KatanaConfig,
+    KatanaWebCrawlProvider,
+    LocalSubprocessToolRunner,
+)
+from redforge.domain import Host
+
+provider = KatanaWebCrawlProvider(
+    runner=LocalSubprocessToolRunner(),
+    definition=KATANA_TOOL,
+    config=KatanaConfig(),
+)
+result = provider.crawl((Host(hostname="app.example.com"),))
+```
+
+The target is a documentation-only placeholder. RedForge does not install
+Katana or configure credentials. See
+[Katana Web Crawl Integration](docs/katana-integration.md).
+
 ## Multi-Output State
 
 A capability may publish several typed state values from one execution. The

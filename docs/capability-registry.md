@@ -145,3 +145,9 @@ the `HOSTS -> http_probe -> (ALIVE_HOSTS, HTTP_ENDPOINTS)` capability
 contract. Both goals share one producer and therefore produce one plan step.
 Crawler-produced `ENDPOINTS` remains distinct. See
 [HTTPX Web Probe Integration](httpx-integration.md).
+
+`CapabilityId("web_crawl")` is likewise distinct from `ToolId("katana")`.
+Katana is a replaceable provider and never appears in a plan. The registry
+contract remains `ALIVE_HOSTS -> web_crawl -> ENDPOINTS`; tool metadata and
+configuration remain outside capability definitions. See
+[Katana Web Crawl Integration](katana-integration.md).

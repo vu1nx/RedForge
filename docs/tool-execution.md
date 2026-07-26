@@ -176,6 +176,12 @@ discovery. Resolved hosts are encoded as deterministic stdin, and normalized
 HTTP endpoint evidence is mapped back to approved responsive host identities.
 The generic runner performs no URL parsing or scope decisions.
 
+Katana web crawling follows the same separation: `KatanaWebCrawlProvider`
+builds bounded literal argv and stdin, parses JSONL, enforces exact approved
+host scope, and returns typed crawler endpoints. `WebCrawlCapability` imports
+only the tool-agnostic SDK provider contract. See
+[Katana Web Crawl Integration](katana-integration.md).
+
 ## Deterministic testing
 
 `FakeToolRunner` queues immutable `ToolExecutionResult` values by `ToolId` and

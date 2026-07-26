@@ -46,6 +46,11 @@ from redforge.sdk.tool import (
     ToolRunnerConfig,
 )
 from redforge.sdk.tool_registry import ToolRegistry, UnknownToolError
+from redforge.sdk.web_crawl import (
+    WebCrawlProvider,
+    WebCrawlProviderResult,
+    WebCrawlProviderStatus,
+)
 
 __all__ = [
     "Capability",
@@ -83,4 +88,7 @@ __all__ = [
     "TECHNOLOGY_DETECTION",
     "VULNERABILITY_INTELLIGENCE",
     "WEB_CRAWL",
+    "WebCrawlProvider",
+    "WebCrawlProviderResult",
+    "WebCrawlProviderStatus",
 ]

@@ -66,7 +66,11 @@ def test_canonical_definition_and_registry_are_static() -> None:
     assert SUBFINDER_TOOL.default_timeout_seconds == 600.0
     assert SUBFINDER_TOOL.tags == ("passive", "recon", "subdomain")
     assert registry.require(SUBFINDER_TOOL_ID) is SUBFINDER_TOOL
-    assert registry.ids() == (ToolId("httpx"), SUBFINDER_TOOL_ID)
+    assert registry.ids() == (
+        ToolId("httpx"),
+        ToolId("katana"),
+        SUBFINDER_TOOL_ID,
+    )
     assert not hasattr(SUBFINDER_TOOL, "runner")
     assert not hasattr(SUBFINDER_TOOL, "capability")
 

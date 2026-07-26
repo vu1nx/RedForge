@@ -43,9 +43,9 @@ class RecordingCrawler:
     """Return one deterministic endpoint for responsive host URLs."""
 
     def __init__(self) -> None:
-        self.inputs: list[tuple[str, ...]] = []
+        self.inputs: list[tuple[Host, ...]] = []
 
-    def crawl(self, hosts: tuple[str, ...]) -> WebCrawlAdapterResult:
+    def crawl(self, hosts: tuple[Host, ...]) -> WebCrawlAdapterResult:
         self.inputs.append(hosts)
         return WebCrawlAdapterResult(
             endpoints=(
@@ -202,9 +202,10 @@ def test_downstream_crawl_and_technology_detection_remain_separate() -> None:
         WEB_CRAWL,
         TECHNOLOGY_DETECTION,
     )
-    assert crawler.inputs == [
-        ("http://api.example.com", "https://api.example.com")
-    ]
+    assert len(crawler.inputs) == 1
+    assert tuple(host.hostname for host in crawler.inputs[0]) == (
+        "api.example.com",
+    )
     assert detector.inputs == [("https://api.example.com/",)]
     assert len(runner.invocations) == 2
 
@@ -230,7 +231,7 @@ def test_empty_successful_http_probe_flows_through_downstream_stages() -> None:
     assert result.status is Status.SUCCESS
     assert result.context.get(PipelineStateKey.ALIVE_HOSTS) == ()
     assert result.context.get(PipelineStateKey.HTTP_ENDPOINTS) == ()
-    assert result.context.get(PipelineStateKey.ENDPOINTS) == []
+    assert result.context.get(PipelineStateKey.ENDPOINTS) == ()
     assert result.context.get(PipelineStateKey.TECHNOLOGIES) == []
     assert crawler.inputs == []
     assert detector.inputs == []

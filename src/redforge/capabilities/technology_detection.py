@@ -1,5 +1,6 @@
 """Technology detection capability using WhatWeb."""
 
+from ipaddress import IPv6Address, ip_address
 from typing import Any, cast
 
 from redforge.adapters.errors import AdapterError
@@ -89,12 +90,14 @@ class TechnologyDetectionCapability(Capability):
 
     def _get_endpoints_from_state(self, state: dict[str, Any]) -> list[str]:  # type: ignore[reportUnknownParameterType]
         endpoints_data = state.get(self._ENDPOINTS_STATE_KEY, [])
-        if not isinstance(endpoints_data, list):
+        if not isinstance(endpoints_data, (list, tuple)):
             return []
 
         # Convert Endpoint objects to URL strings for WhatWeb input
         endpoint_urls: list[str] = []
-        for endpoint in endpoints_data:  # type: ignore[reportUnknownVariableType]
+        for endpoint in cast(
+            list[object] | tuple[object, ...], endpoints_data
+        ):
             if isinstance(endpoint, Endpoint):
                 url = self._endpoint_to_url(endpoint)
                 endpoint_urls.append(url)
@@ -105,6 +108,13 @@ class TechnologyDetectionCapability(Capability):
         """Convert an Endpoint object to a URL string."""
         protocol = endpoint.protocol
         host = endpoint.host
+        try:
+            address = ip_address(host)
+        except ValueError:
+            pass
+        else:
+            if isinstance(address, IPv6Address):
+                host = f"[{address}]"
         port = endpoint.port
         path = endpoint.path or "/"
 

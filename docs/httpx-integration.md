@@ -183,7 +183,8 @@ Current limitations:
 - output retention is bounded after process capture rather than streamed;
 - version compatibility is not automatically probed;
 - duplicate optional metadata uses first-valid-record semantics;
-- Katana and technology detection remain legacy direct-subprocess adapters;
-- Katana continues to consume `ALIVE_HOSTS`; a future migration may choose to
-  consume richer `HTTP_ENDPOINTS` evidence;
+- Katana consumes `ALIVE_HOSTS` through the ToolRunner-backed web-crawl
+  provider; a future input-contract milestone may choose to consume richer
+  `HTTP_ENDPOINTS` evidence;
+- technology detection remains a legacy direct-subprocess adapter;
 - technology detection continues to consume crawler-produced `ENDPOINTS`.

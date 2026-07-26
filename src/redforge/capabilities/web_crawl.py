@@ -1,115 +1,176 @@
-"""Web crawling capability using Katana."""
+"""Tool-agnostic web-crawl capability."""
 
 from typing import Any, cast
 
-from redforge.adapters.errors import AdapterError
-from redforge.adapters.katana import (
-    KatanaAdapter,
-    WebCrawlAdapterResult,
-    WebCrawler,
-)
 from redforge.domain.endpoint import Endpoint
+from redforge.domain.host import Host
+from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
-from redforge.sdk.result import Result, Status
+from redforge.sdk.result import Result, StatePublication, Status
+from redforge.sdk.web_crawl import (
+    WebCrawlProvider,
+    WebCrawlProviderResult,
+    WebCrawlProviderStatus,
+)
+
+
+class _UnavailableWebCrawlProvider:
+    """Safe default for manual capability construction."""
+
+    def crawl(self, hosts: tuple[Host, ...]) -> WebCrawlProviderResult:
+        del hosts
+        return WebCrawlProviderResult(
+            status=WebCrawlProviderStatus.UNAVAILABLE,
+            message="Web crawl provider is unavailable.",
+        )
+
+
+def _endpoint_sort_key(endpoint: Endpoint) -> tuple[object, ...]:
+    return (
+        endpoint.protocol,
+        endpoint.host,
+        endpoint.port,
+        endpoint.path or "/",
+        endpoint.description or "",
+    )
+
+
+def _normalize_endpoints(
+    endpoints: tuple[Endpoint, ...],
+) -> tuple[Endpoint, ...]:
+    normalized: dict[tuple[str, str, int, str], Endpoint] = {}
+    for endpoint in endpoints:
+        identity = (
+            endpoint.protocol,
+            endpoint.host,
+            endpoint.port,
+            endpoint.path or "/",
+        )
+        existing = normalized.get(identity)
+        if existing is not None and existing != endpoint:
+            raise ValueError("web crawl provider returned conflicting endpoints")
+        normalized.setdefault(identity, endpoint)
+    return tuple(sorted(normalized.values(), key=_endpoint_sort_key))
 
 
 class WebCrawlCapability(Capability):
-    """Web crawling capability using ProjectDiscovery Katana.
-
-    This capability crawls reachable hosts for endpoints using the Katana
-    external tool through the adapter pattern.
-    """
-
-    _ALIVE_HOSTS_STATE_KEY = "alive_hosts"
+    """Discover application endpoints through an injected domain provider."""
 
     def __init__(
         self,
-        binary_path: str = "katana",
         *,
-        crawler: WebCrawler | None = None,
+        provider: WebCrawlProvider | None = None,
+        crawler: WebCrawlProvider | None = None,
     ) -> None:
-        """Initialize the web crawl capability.
+        if provider is not None and crawler is not None:
+            raise ValueError("use provider or crawler, not both")
+        self._provider = provider or crawler or _UnavailableWebCrawlProvider()
 
-        Args:
-            binary_path: Path to the Katana binary (default: "katana").
-        """
-        self._crawler = crawler or KatanaAdapter(binary_path=binary_path)
-
-    def execute(self, context: Context) -> Result[list[Endpoint]]:
-        """Execute web crawling against alive hosts from pipeline state.
-
-        Args:
-            context: Runtime context containing alive hosts in state.
-
-        Returns:
-            Result containing discovered endpoints or error information.
-        """
+    def execute(self, context: Context) -> Result[None]:
+        """Crawl the current responsive-host state exactly once."""
         hosts = self._get_hosts_from_state(context.state)
-
         if not hosts:
-            return Result(status=Status.SUCCESS, data=[])
-
+            return self._publishable_result(
+                status=Status.SUCCESS,
+                endpoints=(),
+                provider_status=WebCrawlProviderStatus.SUCCESS,
+            )
         try:
-            response = cast(object, self._crawler.crawl(tuple(hosts)))
-        except AdapterError:
-            return Result(
-                status=Status.FAILURE,
-                data=[],
-                errors=["Web crawler is unavailable or returned an invalid response"],
-            )
+            response = cast(object, self._provider.crawl(hosts))
         except Exception:
-            return Result(
-                status=Status.ERROR,
-                data=[],
-                errors=["Web crawler failed with an unexpected execution error"],
+            return self._error_result(
+                "Web crawl provider failed with an unexpected execution error"
             )
-        if not isinstance(response, WebCrawlAdapterResult):
-            return Result(
-                status=Status.ERROR,
-                data=[],
-                errors=["Web crawler returned an invalid result"],
+        if not isinstance(response, WebCrawlProviderResult):
+            return self._error_result(
+                "Web crawl provider returned an invalid result"
             )
-        response_endpoints = cast(object, response.endpoints)
-        if not isinstance(response_endpoints, tuple) or not all(
-            isinstance(item, Endpoint)
-            for item in cast(tuple[object, ...], response_endpoints)
-        ):
-            return Result(
-                status=Status.ERROR,
-                data=[],
-                errors=["Web crawler returned an invalid result"],
+        try:
+            endpoints = _normalize_endpoints(response.endpoints)
+        except (TypeError, ValueError):
+            return self._error_result(
+                "Web crawl provider returned invalid endpoint evidence"
             )
+        if response.status is WebCrawlProviderStatus.SUCCESS:
+            status = Status.SUCCESS
+        elif response.status is WebCrawlProviderStatus.PARTIAL:
+            status = Status.PARTIAL if endpoints else Status.FAILURE
+        elif response.status is WebCrawlProviderStatus.FAILURE:
+            status = Status.FAILURE
+        else:
+            status = Status.ERROR
+        errors = (
+            []
+            if status is Status.SUCCESS
+            else [
+                response.message
+                or (
+                    "Web crawling completed with partial findings"
+                    if status is Status.PARTIAL
+                    else "Web crawling failed"
+                )
+            ]
+        )
+        publications = (
+            (StatePublication(PipelineStateKey.ENDPOINTS, endpoints),)
+            if status in {Status.SUCCESS, Status.PARTIAL}
+            else ()
+        )
         return Result(
-            status=Status.SUCCESS,
-            data=list(cast(tuple[Endpoint, ...], response_endpoints)),
+            status=status,
+            data=None,
+            errors=errors,
+            metadata={
+                "endpoint_count": len(endpoints),
+                "provider_status": response.status.value,
+                "malformed_record_count": response.malformed_record_count,
+                "out_of_scope_count": response.out_of_scope_count,
+                "duplicate_count": response.duplicate_count,
+                "truncated": response.truncated,
+            },
+            publications=publications,
         )
 
-    def _get_hosts_from_state(self, state: dict[str, Any]) -> list[str]:  # type: ignore[reportUnknownParameterType]
-        alive_hosts = state.get(self._ALIVE_HOSTS_STATE_KEY, [])
-        if not isinstance(alive_hosts, (list, tuple)):
-            return []
+    @staticmethod
+    def _publishable_result(
+        *,
+        status: Status,
+        endpoints: tuple[Endpoint, ...],
+        provider_status: WebCrawlProviderStatus,
+    ) -> Result[None]:
+        return Result(
+            status=status,
+            data=None,
+            metadata={
+                "endpoint_count": len(endpoints),
+                "provider_status": provider_status.value,
+                "malformed_record_count": 0,
+                "out_of_scope_count": 0,
+                "duplicate_count": 0,
+                "truncated": False,
+            },
+            publications=(
+                StatePublication(PipelineStateKey.ENDPOINTS, endpoints),
+            ),
+        )
 
-        # Convert Host objects to strings for Katana input
-        from redforge.domain.host import Host
+    @staticmethod
+    def _get_hosts_from_state(state: dict[str, Any]) -> tuple[Host, ...]:  # type: ignore[reportUnknownParameterType]
+        value = state.get(PipelineStateKey.ALIVE_HOSTS)
+        if not isinstance(value, (list, tuple)):
+            return ()
+        return tuple(
+            item
+            for item in cast(list[object] | tuple[object, ...], value)
+            if isinstance(item, Host)
+        )
 
-        host_strings: list[str] = []
-        for host in cast(list[object] | tuple[object, ...], alive_hosts):
-            if isinstance(host, Host):
-                if host.hostname:
-                    host_strings.append(f"http://{host.hostname}")
-                    host_strings.append(f"https://{host.hostname}")
-                else:
-                    host_strings.append(f"http://{host.address}")
-                    host_strings.append(f"https://{host.address}")
-
-        return host_strings
+    @staticmethod
+    def _error_result(message: str) -> Result[None]:
+        return Result(status=Status.ERROR, data=None, errors=[message])
 
     @property
     def name(self) -> str:
-        """Get the name of the capability.
-
-        Returns:
-            The capability name.
-        """
+        """Return the stable capability identity."""
         return "web_crawl"

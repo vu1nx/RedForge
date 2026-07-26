@@ -105,3 +105,10 @@ endpoint evidence becomes failure. Failure, unavailable execution, and
 operational error publish neither state. One HTTPX invocation remains one
 `http_probe` execution-history entry. See
 [HTTPX Web Probe Integration](httpx-integration.md).
+
+Web crawling uses the same boundary. Complete and usable partial Katana
+provider results publish one immutable crawler `ENDPOINTS` tuple. Clean empty
+output publishes `()`. A partial result without endpoints becomes failure;
+failure, unavailable execution, and operational error publish nothing. One
+Katana invocation remains one `web_crawl` history entry. See
+[Katana Web Crawl Integration](katana-integration.md).

@@ -151,6 +151,41 @@ This example uses a documentation-only placeholder target. RedForge does not
 install Subfinder or configure its provider credentials. See
 [Subfinder Passive Recon Integration](docs/subfinder-integration.md).
 
+### HTTPX web-service probing
+
+HTTPX is the default replaceable provider for the `http_probe` capability. It
+consumes resolved hosts through bounded stdin and returns normalized HTTP
+response evidence without becoming a capability identity or planner step.
+
+```python
+from ipaddress import IPv4Address
+
+from redforge.adapters import (
+    HTTPX_TOOL,
+    HttpxConfig,
+    HttpxProbeProvider,
+    LocalSubprocessToolRunner,
+)
+from redforge.domain.host import Host
+
+provider = HttpxProbeProvider(
+    runner=LocalSubprocessToolRunner(),
+    definition=HTTPX_TOOL,
+    config=HttpxConfig(),
+)
+resolved_hosts = (
+    Host(
+        hostname="api.example.com",
+        address=IPv4Address("192.0.2.10"),
+    ),
+)
+result = provider.probe(resolved_hosts)
+```
+
+The domain and address are documentation-only placeholders. RedForge does not
+install HTTPX or add credentials, headers, cookies, or proxy configuration.
+See [HTTPX Web Probe Integration](docs/httpx-integration.md).
+
 ## Multi-Output State
 
 A capability may publish several typed state values from one execution. The

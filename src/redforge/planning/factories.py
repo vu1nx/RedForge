@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from redforge.adapters.host_resolver import HostResolver
-from redforge.adapters.httpx import HttpProbeTransport
+from redforge.adapters.httpx import HttpxProbeProvider
 from redforge.adapters.katana import WebCrawler
 from redforge.adapters.nvd import VulnerabilityProvider
 from redforge.adapters.subfinder import SubfinderSubdomainProvider
@@ -42,6 +42,7 @@ from redforge.sdk.capability_id import (
     CapabilityId,
     normalize_capability_id,
 )
+from redforge.sdk.http_probe import HttpProbeProvider
 from redforge.sdk.subdomain_discovery import SubdomainProvider
 from redforge.sdk.tool import ToolRunner
 
@@ -142,7 +143,7 @@ class CapabilityDependencies:
 
     subdomain_provider: SubdomainProvider | None = None
     host_resolver: HostResolver | None = None
-    http_transport: HttpProbeTransport | None = None
+    http_transport: HttpProbeProvider | None = None
     web_crawler: WebCrawler | None = None
     technology_detector: TechnologyDetector | None = None
     vulnerability_provider: VulnerabilityProvider | None = None
@@ -154,7 +155,7 @@ def create_default_factory_registry(
     dependencies: CapabilityDependencies | None = None,
     subdomain_provider: SubdomainProvider | None = None,
     host_resolver: HostResolver | None = None,
-    http_transport: HttpProbeTransport | None = None,
+    http_transport: HttpProbeProvider | None = None,
     web_crawler: WebCrawler | None = None,
     technology_detector: TechnologyDetector | None = None,
     vulnerability_provider: VulnerabilityProvider | None = None,
@@ -207,7 +208,17 @@ def create_default_factory_registry(
     )
     registry.register(
         HTTP_PROBE,
-        lambda: HttpProbeCapability(transport=configured.http_transport),
+        lambda: HttpProbeCapability(
+            provider=(
+                configured.http_transport
+                or HttpxProbeProvider(
+                    runner=(
+                        configured.tool_runner
+                        or LocalSubprocessToolRunner()
+                    )
+                )
+            )
+        ),
     )
     registry.register(
         WEB_CRAWL,

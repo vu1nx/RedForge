@@ -138,3 +138,8 @@ served by `ToolId("subfinder")`. Plans and execution history continue to record
 only the capability identity; changing its provider does not change dependency
 resolution or add a tool-shaped plan step. See
 [Subfinder Passive Recon Integration](subfinder-integration.md).
+
+The same separation applies to `CapabilityId("http_probe")` and
+`ToolId("httpx")`. HTTPX remains a replaceable provider; the planner sees only
+the existing `HOSTS -> http_probe -> ALIVE_HOSTS` capability contract. See
+[HTTPX Web Probe Integration](httpx-integration.md).

@@ -239,9 +239,13 @@ class AssetIntelligenceCapability(Capability):
         expected_type: type[T],  # type: ignore[reportUnknownParameterType]
     ) -> list[T]:
         value = state.get(key, [])
-        if not isinstance(value, list):
+        if not isinstance(value, (list, tuple)):
             return []
-        return [item for item in cast(list[Any], value) if isinstance(item, expected_type)]
+        return [
+            item
+            for item in cast(list[Any] | tuple[Any, ...], value)
+            if isinstance(item, expected_type)
+        ]
 
     def _source_host(self, source: str | None) -> str | None:
         if not source:

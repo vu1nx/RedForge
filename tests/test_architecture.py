@@ -486,3 +486,75 @@ def test_subfinder_adapter_has_no_install_or_update_operation() -> None:
     assert '"-disable-update-check"' in source
     for forbidden_argument in ('"-update"', '"-up"', '"-install"', '"-o"', '"-oD"'):
         assert forbidden_argument not in source
+
+
+def test_http_probe_capability_is_tool_implementation_agnostic() -> None:
+    path = _SOURCE_ROOT / "capabilities" / "http_probe.py"
+    imports = _imports(path)
+    source = path.read_text(encoding="utf-8")
+
+    assert "subprocess" not in imports
+    assert "redforge.adapters" not in imports
+    assert "redforge.sdk.tool" not in imports
+    assert "HTTPX" not in source
+    assert "ToolRunner" not in source
+
+
+def test_httpx_adapter_uses_only_the_tool_runner_port() -> None:
+    path = _SOURCE_ROOT / "adapters" / "httpx.py"
+    imports = _imports(path)
+    source = path.read_text(encoding="utf-8")
+
+    assert "redforge.sdk.tool" in imports
+    assert "subprocess" not in imports
+    assert "redforge.adapters.tool_runner" not in imports
+    assert "redforge.runtime" not in imports
+    assert "redforge.runtime.pipeline" not in imports
+    assert "redforge.sdk.context" not in imports
+    assert "LocalSubprocessToolRunner" not in source
+    assert "StatePublication" not in source
+    assert "shell=True" not in source
+    assert "os.system(" not in source
+    assert "extra_args" not in source
+    assert "command_string" not in source
+
+
+def test_httpx_is_absent_from_planner_and_builder() -> None:
+    for filename in ("planner.py", "builder.py"):
+        source = (_SOURCE_ROOT / "planning" / filename).read_text(
+            encoding="utf-8"
+        )
+        assert "httpx" not in source.lower()
+
+
+def test_direct_subprocess_imports_are_limited_to_runner_and_known_debt() -> None:
+    importing = {
+        path.name
+        for path in (_SOURCE_ROOT / "adapters").glob("*.py")
+        if "subprocess" in _imports(path)
+    }
+    assert importing == {
+        "katana.py",
+        "technology_detection.py",
+        "tool_runner.py",
+    }
+
+
+def test_httpx_adapter_has_no_unsafe_or_expansive_probe_flags() -> None:
+    source = (_SOURCE_ROOT / "adapters" / "httpx.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"-disable-update-check"' in source
+    for forbidden_argument in (
+        '"-update"',
+        '"-unsafe"',
+        '"-header"',
+        '"-body"',
+        '"-screenshot"',
+        '"-tech-detect"',
+        '"-output"',
+        '"-path"',
+        '"-ports"',
+    ):
+        assert forbidden_argument not in source

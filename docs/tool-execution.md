@@ -23,9 +23,10 @@ ToolRunner
 Capabilities model security responsibilities. Tools are replaceable execution
 providers.
 
-The first concrete provider is the passive
-[Subfinder integration](subfinder-integration.md). The framework itself still
-does not download, install, or configure external tools and does not change the
+Concrete providers now include passive
+[Subfinder discovery](subfinder-integration.md) and conservative
+[HTTPX web probing](httpx-integration.md). The framework itself still does not
+download, install, or configure external tools and does not change the
 capability graph.
 
 ## Identity, definitions, and registry
@@ -170,6 +171,11 @@ it builds a narrow immutable invocation, consumes bounded JSONL output, and
 maps tool outcomes into a domain-level `SubdomainDiscoveryResult`. Neither the
 generic runner nor the capability knows how Subfinder output is shaped.
 
+`HttpxProbeProvider` follows the same boundary for HTTP and HTTPS service
+discovery. Resolved hosts are encoded as deterministic stdin, and normalized
+HTTP endpoint evidence is mapped back to approved responsive host identities.
+The generic runner performs no URL parsing or scope decisions.
+
 ## Deterministic testing
 
 `FakeToolRunner` queues immutable `ToolExecutionResult` values by `ToolId` and
@@ -182,3 +188,5 @@ installed security tooling. Future adapter tests should prefer the fake.
 
 Subfinder unit and planned-execution tests use `FakeToolRunner`; ordinary test
 runs therefore require neither a Subfinder binary nor network access.
+HTTPX tests use the same fake boundary and likewise require no installed
+binary, network, credentials, target files, or platform shell.

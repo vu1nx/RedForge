@@ -87,14 +87,14 @@ class WebCrawlCapability(Capability):
 
     def _get_hosts_from_state(self, state: dict[str, Any]) -> list[str]:  # type: ignore[reportUnknownParameterType]
         alive_hosts = state.get(self._ALIVE_HOSTS_STATE_KEY, [])
-        if not isinstance(alive_hosts, list):
+        if not isinstance(alive_hosts, (list, tuple)):
             return []
 
         # Convert Host objects to strings for Katana input
         from redforge.domain.host import Host
 
         host_strings: list[str] = []
-        for host in alive_hosts:  # type: ignore[reportUnknownVariableType]
+        for host in cast(list[object] | tuple[object, ...], alive_hosts):
             if isinstance(host, Host):
                 if host.hostname:
                     host_strings.append(f"http://{host.hostname}")

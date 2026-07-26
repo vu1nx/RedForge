@@ -2,7 +2,6 @@
 
 from typing import Any
 
-from redforge.adapters.httpx import HttpProbeAdapterResult
 from redforge.adapters.katana import WebCrawlAdapterResult
 from redforge.adapters.subfinder import SubdomainDiscoveryResult
 from redforge.adapters.technology_detection import TechnologyDetectionResult
@@ -25,6 +24,7 @@ from redforge.planning import (
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
+from redforge.sdk.http_probe import HttpProbeProviderResult
 from redforge.sdk.result import Result, StatePublication, Status
 
 
@@ -38,8 +38,8 @@ class FakeResolver:
 class FakeHttpTransport:
     """Return all resolved hosts as responsive."""
 
-    def probe(self, hosts: tuple[Host, ...]) -> HttpProbeAdapterResult:
-        return HttpProbeAdapterResult(hosts=hosts)
+    def probe(self, hosts: tuple[Host, ...]) -> HttpProbeProviderResult:
+        return HttpProbeProviderResult(responsive_hosts=hosts)
 
 
 class FakeCrawler:

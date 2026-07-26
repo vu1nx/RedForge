@@ -95,3 +95,11 @@ enumeration publishes `()`. Provider failure, unavailable execution, and
 operational error publish nothing; the existing sequential stop rules apply.
 One Subfinder invocation remains one `subdomain_discovery` history entry. See
 [Subfinder Passive Recon Integration](subfinder-integration.md).
+
+HTTP probing follows the same publication boundary. The HTTPX provider retains
+typed endpoint evidence internally and returns approved responsive `Host`
+identities to `HttpProbeCapability`. Complete and usable partial results
+publish one immutable `ALIVE_HOSTS` tuple; a successful empty probe publishes
+`()`. Failure, unavailable execution, and operational error publish nothing.
+One HTTPX invocation remains one `http_probe` execution-history entry. See
+[HTTPX Web Probe Integration](httpx-integration.md).

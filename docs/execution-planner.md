@@ -54,7 +54,7 @@ exceptions fail before runtime execution, with sanitized integration errors.
 
 Factories may close over explicit typed ports. `CapabilityDependencies`
 supports the default `SubdomainProvider`, `HostResolver`,
-`HttpProbeTransport`, `WebCrawler`, `TechnologyDetector`, and
+`HttpProbeProvider`, `WebCrawler`, `TechnologyDetector`, and
 `VulnerabilityProvider` injection points. Omitted ports retain the current
 production constructors. Construction performs no network or subprocess
 operation.

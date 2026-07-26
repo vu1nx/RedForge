@@ -12,9 +12,15 @@ from redforge.adapters.errors import (
 )
 from redforge.adapters.host_resolver import HostResolver, StandardHostResolver
 from redforge.adapters.httpx import (
+    HTTPX_TOOL,
+    HTTPX_TOOL_ID,
     HttpProbeAdapterResult,
+    HttpProbeProvider,
+    HttpProbeProviderResult,
+    HttpProbeProviderStatus,
     HttpProbeTransport,
-    HttpxAdapter,
+    HttpxConfig,
+    HttpxProbeProvider,
 )
 from redforge.adapters.katana import (
     KatanaAdapter,
@@ -39,7 +45,8 @@ from redforge.adapters.technology_detection import (
 from redforge.adapters.tool_runner import LocalSubprocessToolRunner
 
 __all__ = [
-    "HttpxAdapter",
+    "HTTPX_TOOL",
+    "HTTPX_TOOL_ID",
     "AdapterConfigurationError",
     "AdapterError",
     "AdapterResponseError",
@@ -47,7 +54,12 @@ __all__ = [
     "create_default_tool_registry",
     "HostResolver",
     "HttpProbeAdapterResult",
+    "HttpProbeProvider",
+    "HttpProbeProviderResult",
+    "HttpProbeProviderStatus",
     "HttpProbeTransport",
+    "HttpxConfig",
+    "HttpxProbeProvider",
     "StandardHostResolver",
     "KatanaAdapter",
     "LocalSubprocessToolRunner",

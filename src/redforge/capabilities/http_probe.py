@@ -1,104 +1,114 @@
-"""HTTP probing capability using httpx."""
+"""Tool-agnostic HTTP service probing capability."""
 
 from typing import Any, cast
 
-from redforge.adapters.errors import AdapterError
-from redforge.adapters.httpx import (
-    HttpProbeAdapterResult,
-    HttpProbeTransport,
-    HttpxAdapter,
-)
 from redforge.domain.host import Host, HostResolution
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
+from redforge.sdk.http_probe import (
+    HttpProbeProvider,
+    HttpProbeProviderResult,
+    HttpProbeProviderStatus,
+)
 from redforge.sdk.result import Result, Status
 
 
-class HttpProbeCapability(Capability):
-    """HTTP probing capability using ProjectDiscovery httpx.
+class _UnavailableHttpProbeProvider:
+    """Safe default for manual capability construction."""
 
-    This capability probes discovered hosts for reachable HTTP/HTTPS services
-    using the httpx external tool through the adapter pattern.
-    """
-
-    def __init__(
-        self,
-        binary_path: str = "httpx",
-        *,
-        transport: HttpProbeTransport | None = None,
-    ) -> None:
-        """Initialize the HTTP probe capability.
-
-        Args:
-            binary_path: Path to the httpx binary (default: "httpx").
-        """
-        self._transport = transport or HttpxAdapter(binary_path=binary_path)
-
-    def execute(self, context: Context) -> Result[list[Host]]:
-        """Execute HTTP probing against hosts from pipeline state.
-
-        Args:
-            context: Runtime context containing discovered hosts in state.
-
-        Returns:
-            Result containing alive hosts or error information.
-        """
-        hosts = self._get_hosts_from_state(context.state)
-
-        if not hosts:
-            return Result(status=Status.SUCCESS, data=[])
-
-        try:
-            response = cast(object, self._transport.probe(tuple(hosts)))
-        except AdapterError:
-            return Result(
-                status=Status.FAILURE,
-                data=[],
-                errors=["HTTP probe adapter is unavailable or returned an invalid response"],
-            )
-        except Exception:
-            return Result(
-                status=Status.ERROR,
-                data=[],
-                errors=["HTTP probe adapter failed with an unexpected execution error"],
-            )
-        if not isinstance(response, HttpProbeAdapterResult):
-            return Result(
-                status=Status.ERROR,
-                data=[],
-                errors=["HTTP probe adapter returned an invalid result"],
-            )
-        response_hosts = cast(object, response.hosts)
-        if not isinstance(response_hosts, tuple) or not all(
-            isinstance(host, Host)
-            for host in cast(tuple[object, ...], response_hosts)
-        ):
-            return Result(
-                status=Status.ERROR,
-                data=[],
-                errors=["HTTP probe adapter returned an invalid result"],
-            )
-        alive_hosts = sorted(
-            set(cast(tuple[Host, ...], response_hosts)),
-            key=lambda host: (
-                host.hostname or "",
-                tuple(address.value for address in host.addresses),
-            ),
+    def probe(self, hosts: tuple[Host, ...]) -> HttpProbeProviderResult:
+        del hosts
+        return HttpProbeProviderResult(
+            status=HttpProbeProviderStatus.UNAVAILABLE,
+            message="HTTP probe provider is unavailable.",
         )
-        return Result(status=Status.SUCCESS, data=alive_hosts)
 
-    def _get_hosts_from_state(self, state: dict[str, Any]) -> list[Host]:  # type: ignore[reportUnknownParameterType]
+
+def _host_sort_key(host: Host) -> tuple[object, ...]:
+    return (
+        host.hostname or "",
+        tuple(address.value for address in host.addresses),
+        host.evidence,
+    )
+
+
+class HttpProbeCapability(Capability):
+    """Identify responsive HTTP services through an injected domain provider."""
+
+    def __init__(self, *, provider: HttpProbeProvider | None = None) -> None:
+        self._provider = provider or _UnavailableHttpProbeProvider()
+
+    def execute(self, context: Context) -> Result[tuple[Host, ...]]:
+        """Probe the current resolved-host state exactly once."""
+        hosts = self._get_hosts_from_state(context.state)
+        if not hosts:
+            return Result(status=Status.SUCCESS, data=())
+        try:
+            response = cast(object, self._provider.probe(hosts))
+        except Exception:
+            return self._error_result(
+                "HTTP probe provider failed with an unexpected execution error"
+            )
+        if not isinstance(response, HttpProbeProviderResult):
+            return self._error_result(
+                "HTTP probe provider returned an invalid result"
+            )
+
+        responsive_hosts = tuple(
+            sorted(set(response.responsive_hosts), key=_host_sort_key)
+        )
+        if response.status is HttpProbeProviderStatus.SUCCESS:
+            status = Status.SUCCESS
+        elif response.status is HttpProbeProviderStatus.PARTIAL:
+            status = Status.PARTIAL if responsive_hosts else Status.FAILURE
+        elif response.status is HttpProbeProviderStatus.FAILURE:
+            status = Status.FAILURE
+        else:
+            status = Status.ERROR
+        errors = (
+            []
+            if status is Status.SUCCESS
+            else [
+                response.message
+                or (
+                    "HTTP probing completed with partial findings"
+                    if status is Status.PARTIAL
+                    else "HTTP probing failed"
+                )
+            ]
+        )
+        return Result(
+            status=status,
+            data=responsive_hosts,
+            errors=errors,
+            metadata={
+                "responsive_host_count": len(responsive_hosts),
+                "endpoint_count": len(response.endpoints),
+                "provider_status": response.status.value,
+                "malformed_record_count": response.malformed_record_count,
+                "out_of_scope_count": response.out_of_scope_count,
+                "duplicate_count": response.duplicate_count,
+                "truncated": response.truncated,
+            },
+        )
+
+    @staticmethod
+    def _get_hosts_from_state(state: dict[str, Any]) -> tuple[Host, ...]:  # type: ignore[reportUnknownParameterType]
         resolution = state.get(PipelineStateKey.HOSTS)
         if not isinstance(resolution, HostResolution):
-            return []
-        return list(resolution.hosts)
+            return ()
+        return resolution.hosts
+
+    @staticmethod
+    def _error_result(message: str) -> Result[tuple[Host, ...]]:
+        return Result(
+            status=Status.ERROR,
+            data=(),
+            errors=[message],
+        )
 
     @property
     def name(self) -> str:
-        """Get the name of the capability.
-
-        Returns:
-            The capability name.
-        """
+        """Return the stable capability identity."""
         return "http_probe"

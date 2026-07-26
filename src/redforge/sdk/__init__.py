@@ -23,6 +23,11 @@ from redforge.sdk.capability_id import (
     CapabilityId,
 )
 from redforge.sdk.context import Context
+from redforge.sdk.http_probe import (
+    HttpProbeProvider,
+    HttpProbeProviderResult,
+    HttpProbeProviderStatus,
+)
 from redforge.sdk.result import Result, StatePublication, Status
 from redforge.sdk.state import PipelineStateKey
 from redforge.sdk.subdomain_discovery import (
@@ -47,6 +52,9 @@ __all__ = [
     "CapabilityDescriptor",
     "CapabilityId",
     "Context",
+    "HttpProbeProvider",
+    "HttpProbeProviderResult",
+    "HttpProbeProviderStatus",
     "PipelineStateKey",
     "Result",
     "StatePublication",

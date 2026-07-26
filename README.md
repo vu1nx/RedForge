@@ -186,6 +186,23 @@ The domain and address are documentation-only placeholders. RedForge does not
 install HTTPX or add credentials, headers, cookies, or proxy configuration.
 See [HTTPX Web Probe Integration](docs/httpx-integration.md).
 
+The `http_probe` capability atomically publishes both responsive hosts and
+typed service evidence. The crawler's `ENDPOINTS` state remains a separate
+contract for discovered paths and resources.
+
+```python
+from redforge.sdk import PipelineStateKey
+
+pipeline_result = pipeline.run(context)
+alive_hosts = pipeline_result.context.get(PipelineStateKey.ALIVE_HOSTS)
+http_endpoints = pipeline_result.context.get(
+    PipelineStateKey.HTTP_ENDPOINTS
+)
+```
+
+Both values are immutable tuples. Endpoint bodies and raw headers are not
+retained.
+
 ## Multi-Output State
 
 A capability may publish several typed state values from one execution. The

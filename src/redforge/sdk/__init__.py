@@ -4,6 +4,7 @@ This package defines the interfaces for implementing capabilities
 that integrate with the RedForge framework.
 """
 
+from redforge.domain.http_probe import HttpProbeEndpoint
 from redforge.sdk.capability import Capability
 from redforge.sdk.capability_definition import (
     CapabilityDefinition,
@@ -52,6 +53,7 @@ __all__ = [
     "CapabilityDescriptor",
     "CapabilityId",
     "Context",
+    "HttpProbeEndpoint",
     "HttpProbeProvider",
     "HttpProbeProviderResult",
     "HttpProbeProviderStatus",

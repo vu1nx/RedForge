@@ -141,5 +141,7 @@ resolution or add a tool-shaped plan step. See
 
 The same separation applies to `CapabilityId("http_probe")` and
 `ToolId("httpx")`. HTTPX remains a replaceable provider; the planner sees only
-the existing `HOSTS -> http_probe -> ALIVE_HOSTS` capability contract. See
+the `HOSTS -> http_probe -> (ALIVE_HOSTS, HTTP_ENDPOINTS)` capability
+contract. Both goals share one producer and therefore produce one plan step.
+Crawler-produced `ENDPOINTS` remains distinct. See
 [HTTPX Web Probe Integration](httpx-integration.md).

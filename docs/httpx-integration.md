@@ -19,10 +19,13 @@ ToolRunner
 httpx
 ```
 
-The planner retains the existing graph:
+The planner retains the existing downstream graph while exposing probe
+evidence as a second output:
 
 ```text
-HOSTS -> http_probe -> ALIVE_HOSTS -> web_crawl -> ENDPOINTS
+HOSTS -> http_probe --+--> ALIVE_HOSTS -> web_crawl -> ENDPOINTS
+                      |
+                      +--> HTTP_ENDPOINTS
 ENDPOINTS -> technology_detection
 ```
 
@@ -127,12 +130,39 @@ Diagnostics use fixed messages and safe counts. They never include stdout,
 stderr, stdin, target lists, argv, PATH, executable paths, environment values,
 or exception messages.
 
-`HttpProbeCapability` maps success and usable partial results into the
-corresponding runtime status and publishes the provider's approved responsive
-hosts as one immutable `ALIVE_HOSTS` tuple. Successful empty output publishes
-`()`. Failure and error states publish nothing. Runtime continuation,
-atomicity, status precedence, and one-entry execution history remain
-unchanged.
+## HTTP Probe Evidence Publication
+
+`HttpProbeCapability` normalizes the provider's typed endpoint tuple, rejects
+conflicting duplicate identities, and derives alive hosts from that evidence.
+It then emits one atomic publication batch:
+
+```text
+HttpProbeCapability
+        |
+        v
+StatePublication
+   |-- ALIVE_HOSTS
+   `-- HTTP_ENDPOINTS
+```
+
+`HTTP_ENDPOINTS` contains responsive HTTP/HTTPS service evidence.
+
+`ENDPOINTS` contains paths and resources discovered by web crawling.
+
+They are separate state contracts.
+
+A successful probe publishes immutable, deterministically ordered tuples for
+both keys. A successful empty result publishes `()` for both. A usable
+`PARTIAL` result also publishes both tuples and allows sequential execution to
+continue; a provider `PARTIAL` with no endpoint evidence is mapped to
+`FAILURE`. Provider failure, unavailability, error, invalid evidence, or
+publication validation failure commits neither state.
+
+One provider invocation produces one capability result, one atomic batch, and
+one execution-history entry. Planning for `ALIVE_HOSTS`, `HTTP_ENDPOINTS`, or
+both resolves to one `http_probe` step. State validation accepts only
+`tuple[Host, ...]` for `ALIVE_HOSTS` and
+`tuple[HttpProbeEndpoint, ...]` for `HTTP_ENDPOINTS`.
 
 `web_crawl` consumes responsive hosts and remains the only default producer of
 `ENDPOINTS`; technology detection remains a separate downstream capability.
@@ -154,5 +184,6 @@ Current limitations:
 - version compatibility is not automatically probed;
 - duplicate optional metadata uses first-valid-record semantics;
 - Katana and technology detection remain legacy direct-subprocess adapters;
-- HTTPX endpoint evidence is not yet published as a separate pipeline state;
-  the stable `http_probe` contract continues to publish `ALIVE_HOSTS`.
+- Katana continues to consume `ALIVE_HOSTS`; a future migration may choose to
+  consume richer `HTTP_ENDPOINTS` evidence;
+- technology detection continues to consume crawler-produced `ENDPOINTS`.

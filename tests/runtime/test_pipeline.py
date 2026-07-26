@@ -306,7 +306,6 @@ def test_known_capability_output_mappings_continue_to_work() -> None:
             SubdomainDiscoveryResult(hostnames=("a.example.com",)),
         ),
         "host_resolution": (PipelineStateKey.HOSTS, HostResolution()),
-        "http_probe": (PipelineStateKey.ALIVE_HOSTS, ["a.example.com"]),
         "technology_detection": (PipelineStateKey.TECHNOLOGIES, ["nginx"]),
         "asset_intelligence": (PipelineStateKey.ASSET_INTELLIGENCE, {"assets": []}),
         "vulnerability_intelligence": (
@@ -322,11 +321,26 @@ def test_known_capability_output_mappings_continue_to_work() -> None:
     capabilities = [
         MockCapability(name, _result(Status.SUCCESS, data)) for name, (_, data) in outputs.items()
     ]
+    capabilities.append(
+        MockCapability(
+            "http_probe",
+            Result(
+                status=Status.SUCCESS,
+                data=None,
+                publications=(
+                    StatePublication(PipelineStateKey.ALIVE_HOSTS, ()),
+                    StatePublication(PipelineStateKey.HTTP_ENDPOINTS, ()),
+                ),
+            ),
+        )
+    )
 
     result = _run(*capabilities)
 
     for name, (state_key, data) in outputs.items():
         assert result.context.state[state_key] is data, name
+    assert result.context.get(PipelineStateKey.ALIVE_HOSTS) == ()
+    assert result.context.get(PipelineStateKey.HTTP_ENDPOINTS) == ()
 
 
 def test_host_resolution_success_is_stored_with_history() -> None:
@@ -359,7 +373,17 @@ def test_host_resolution_partial_propagates_and_continues() -> None:
             }
         )
     )
-    downstream = MockCapability("http_probe", _result(Status.SUCCESS, []))
+    downstream = MockCapability(
+        "http_probe",
+        Result(
+            status=Status.SUCCESS,
+            data=None,
+            publications=(
+                StatePublication(PipelineStateKey.ALIVE_HOSTS, ()),
+                StatePublication(PipelineStateKey.HTTP_ENDPOINTS, ()),
+            ),
+        ),
+    )
 
     result = _run(
         MockCapability(
@@ -665,6 +689,42 @@ def test_undeclared_explicit_publication_is_rejected_atomically() -> None:
     assert result.status == Status.ERROR
     assert result.context.state == {"prior": "preserved"}
     assert "secret" not in repr(result.last_result)
+
+
+def test_invalid_typed_publication_is_rejected_atomically_and_recorded() -> None:
+    pipeline = Pipeline(
+        output_contracts={
+            "invalid": (
+                PipelineStateKey.ALIVE_HOSTS,
+                PipelineStateKey.HTTP_ENDPOINTS,
+            )
+        }
+    )
+    pipeline.add(
+        MockCapability(
+            "invalid",
+            Result[None](
+                status=Status.SUCCESS,
+                data=None,
+                publications=(
+                    StatePublication(PipelineStateKey.ALIVE_HOSTS, ()),
+                    StatePublication(
+                        PipelineStateKey.HTTP_ENDPOINTS,
+                        ("sensitive-invalid-value",),
+                    ),
+                ),
+            ),
+        )
+    )
+    context = Context(target_id="example.com", state={"prior": "preserved"})
+
+    result = pipeline.run(context)
+
+    assert result.status is Status.ERROR
+    assert result.context.state == {"prior": "preserved"}
+    assert len(result.executions) == 1
+    assert result.executions[0].result is result.last_result
+    assert "sensitive-invalid-value" not in repr(result.last_result)
 
 
 def test_legacy_data_for_multi_output_contract_fails_safely() -> None:

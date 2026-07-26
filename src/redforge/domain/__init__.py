@@ -10,6 +10,7 @@ from redforge.domain.endpoint import Endpoint
 from redforge.domain.evidence import Evidence
 from redforge.domain.finding import Finding
 from redforge.domain.host import Host, HostAddress, HostResolution, IPVersion
+from redforge.domain.http_probe import HttpProbeEndpoint
 from redforge.domain.knowledge_graph import (
     KnowledgeGraph,
     KnowledgeGraphEdge,
@@ -48,6 +49,7 @@ __all__ = [
     "Host",
     "HostAddress",
     "HostResolution",
+    "HttpProbeEndpoint",
     "IPVersion",
     "KnowledgeGraph",
     "KnowledgeGraphEdge",

@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest  # type: ignore[reportMissingImports]
 
+from redforge.domain.host import Host
 from redforge.planning import (
     CapabilityDefinition,
     CapabilityDescriptor,
@@ -212,7 +213,7 @@ def test_custom_chain_plans_builds_and_executes_in_order() -> None:
     for name, data in (
         ("a", ("a.example",)),
         ("b", ("host",)),
-        ("c", ("alive",)),
+        ("c", (Host(hostname="alive.example.com"),)),
     ):
         factories.register(
             name,
@@ -230,7 +231,9 @@ def test_custom_chain_plans_builds_and_executes_in_order() -> None:
     assert result.status == Status.SUCCESS
     assert result.context.state[PipelineStateKey.SUBDOMAINS] == ("a.example",)
     assert result.context.state[PipelineStateKey.HOSTS] == ("host",)
-    assert result.context.state[PipelineStateKey.ALIVE_HOSTS] == ("alive",)
+    assert result.context.state[PipelineStateKey.ALIVE_HOSTS] == (
+        Host(hostname="alive.example.com"),
+    )
 
 
 @pytest.mark.parametrize("missing", ["a", "b", "c"])

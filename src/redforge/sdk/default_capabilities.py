@@ -38,7 +38,10 @@ DEFAULT_CAPABILITY_DEFINITIONS = (
         description="Identifies hosts with responsive HTTP services.",
         version="1.0",
         requires=(PipelineStateKey.HOSTS,),
-        provides=(PipelineStateKey.ALIVE_HOSTS,),
+        provides=(
+            PipelineStateKey.ALIVE_HOSTS,
+            PipelineStateKey.HTTP_ENDPOINTS,
+        ),
         tags=("active", "http", "recon"),
     ),
     CapabilityDefinition(

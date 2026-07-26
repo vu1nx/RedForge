@@ -108,6 +108,7 @@ Optional state does not trigger producer insertion.
 subdomain_discovery -> SUBDOMAINS
 SUBDOMAINS -> host_resolution -> HOSTS
 HOSTS -> http_probe -> ALIVE_HOSTS
+                  `-> HTTP_ENDPOINTS
 ALIVE_HOSTS -> web_crawl -> ENDPOINTS
 ENDPOINTS -> technology_detection -> TECHNOLOGIES
 
@@ -118,6 +119,11 @@ ASSET_INTELLIGENCE + VULNERABILITY_INTELLIGENCE
     -> knowledge_graph -> KNOWLEDGE_GRAPH
 KNOWLEDGE_GRAPH -> risk_intelligence -> RISK_INTELLIGENCE
 ```
+
+`ALIVE_HOSTS` and `HTTP_ENDPOINTS` share the single `http_probe` producer.
+Planning either or both outputs creates one capability step. `ENDPOINTS`
+remains crawler path/resource evidence, so the crawl and technology-detection
+dependency chain is unchanged.
 
 `create_default_planned_execution()` assembles the default descriptor registry,
 planner, factory registry, builder, and facade. Tests can supply

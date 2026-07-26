@@ -7,6 +7,7 @@ from redforge.adapters.subfinder import SubdomainDiscoveryResult
 from redforge.adapters.technology_detection import TechnologyDetectionResult
 from redforge.domain.endpoint import Endpoint
 from redforge.domain.host import Host
+from redforge.domain.http_probe import HttpProbeEndpoint
 from redforge.domain.knowledge_graph import KnowledgeGraph
 from redforge.domain.risk_intelligence import RiskIntelligence
 from redforge.domain.technology import Technology
@@ -39,7 +40,20 @@ class FakeHttpTransport:
     """Return all resolved hosts as responsive."""
 
     def probe(self, hosts: tuple[Host, ...]) -> HttpProbeProviderResult:
-        return HttpProbeProviderResult(responsive_hosts=hosts)
+        endpoints = tuple(
+            HttpProbeEndpoint(
+                url=f"https://{host.hostname}",
+                scheme="https",
+                hostname=host.hostname or host.addresses[0].value,
+                port=443,
+                status_code=200,
+            )
+            for host in hosts
+        )
+        return HttpProbeProviderResult(
+            endpoints=endpoints,
+            responsive_hosts=hosts,
+        )
 
 
 class FakeCrawler:
@@ -215,6 +229,10 @@ def test_default_host_http_endpoint_and_technology_paths() -> None:
             ("host_resolution", "http_probe"),
         ),
         (
+            PipelineStateKey.HTTP_ENDPOINTS,
+            ("host_resolution", "http_probe"),
+        ),
+        (
             PipelineStateKey.ENDPOINTS,
             ("host_resolution", "http_probe", "web_crawl"),
         ),
@@ -292,7 +310,10 @@ def test_partial_publishes_data_continues_and_remains_aggregate() -> None:
         errors=["one item failed"],
     )
     success_b = Result(status=Status.SUCCESS, data=("host",))
-    success_c = Result(status=Status.SUCCESS, data=("alive",))
+    success_c = Result(
+        status=Status.SUCCESS,
+        data=(Host(hostname="alive.example.com"),),
+    )
     execution = _custom_execution(
         {"a": partial, "b": success_b, "c": success_c},
         calls,
@@ -315,7 +336,10 @@ def test_failure_stops_and_preserves_initial_and_earlier_state() -> None:
     calls: list[str] = []
     success = Result(status=Status.SUCCESS, data=("subdomain",))
     failure = Result(status=Status.FAILURE, data=("not-published",))
-    skipped = Result(status=Status.SUCCESS, data=("alive",))
+    skipped = Result(
+        status=Status.SUCCESS,
+        data=(Host(hostname="alive.example.com"),),
+    )
     execution = _custom_execution(
         {"a": success, "b": failure, "c": skipped},
         calls,
@@ -344,7 +368,10 @@ def test_error_stops_without_publishing_and_leaves_plan_unchanged() -> None:
         data=("not-published",),
         errors=["sanitized execution error"],
     )
-    skipped = Result(status=Status.SUCCESS, data=("alive",))
+    skipped = Result(
+        status=Status.SUCCESS,
+        data=(Host(hostname="alive.example.com"),),
+    )
     execution = _custom_execution(
         {"a": success, "b": error, "c": skipped},
         calls,
@@ -489,7 +516,10 @@ def test_custom_multi_output_definition_fans_out_without_legacy_fallback() -> No
         CapabilityId("subdomain_consumer"),
         lambda: ResultCapability(
             "subdomain_consumer",
-            Result(status=Status.SUCCESS, data=("alive",)),
+            Result(
+                status=Status.SUCCESS,
+                data=(Host(hostname="alive.example.com"),),
+            ),
             calls,
         ),
     )
@@ -523,4 +553,6 @@ def test_custom_multi_output_definition_fans_out_without_legacy_fallback() -> No
     assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
     assert result.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
     assert result.context.get(PipelineStateKey.ENDPOINTS) == ("endpoint",)
-    assert result.context.get(PipelineStateKey.ALIVE_HOSTS) == ("alive",)
+    assert result.context.get(PipelineStateKey.ALIVE_HOSTS) == (
+        Host(hostname="alive.example.com"),
+    )

@@ -527,6 +527,37 @@ def test_httpx_is_absent_from_planner_and_builder() -> None:
         assert "httpx" not in source.lower()
 
 
+def test_http_probe_evidence_remains_one_atomic_capability_contract() -> None:
+    from redforge.planning import CapabilityId, create_default_registry
+    from redforge.sdk import PipelineStateKey
+
+    definition = create_default_registry().require(CapabilityId("http_probe"))
+    assert definition.requires == (PipelineStateKey.HOSTS,)
+    assert definition.provides == (
+        PipelineStateKey.ALIVE_HOSTS,
+        PipelineStateKey.HTTP_ENDPOINTS,
+    )
+    assert PipelineStateKey.HTTP_ENDPOINTS != PipelineStateKey.ENDPOINTS
+
+    capability_source = (
+        _SOURCE_ROOT / "capabilities" / "http_probe.py"
+    ).read_text(encoding="utf-8")
+    assert capability_source.count("self._provider.probe(hosts)") == 1
+    assert "context.publish" not in capability_source
+    assert "StatePublication(PipelineStateKey.ALIVE_HOSTS" in capability_source
+    assert (
+        "StatePublication(PipelineStateKey.HTTP_ENDPOINTS"
+        in capability_source
+    )
+
+    for filename in ("planner.py", "builder.py"):
+        source = (_SOURCE_ROOT / "planning" / filename).read_text(
+            encoding="utf-8"
+        )
+        assert "HTTP_ENDPOINTS" not in source
+        assert "HttpProbeEndpoint" not in source
+
+
 def test_direct_subprocess_imports_are_limited_to_runner_and_known_debt() -> None:
     importing = {
         path.name

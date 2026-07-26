@@ -7,6 +7,7 @@ from redforge.adapters.katana import WebCrawlAdapterResult
 from redforge.adapters.technology_detection import TechnologyDetectionResult
 from redforge.domain.endpoint import Endpoint
 from redforge.domain.host import Host
+from redforge.domain.http_probe import HttpProbeEndpoint
 from redforge.domain.technology import Technology
 from redforge.planning import (
     HOST_RESOLUTION,
@@ -153,6 +154,16 @@ def test_planned_http_probe_uses_three_typed_capability_steps() -> None:
     assert tuple(host.hostname for host in typed_alive_hosts) == (
         "api.example.com",
     )
+    assert result.context.get(PipelineStateKey.HTTP_ENDPOINTS) == (
+        HttpProbeEndpoint(
+            url="https://api.example.com",
+            scheme="https",
+            hostname="api.example.com",
+            port=443,
+            status_code=404,
+            ip_address="192.0.2.10",
+        ),
+    )
     assert resolver.hostnames == ["api.example.com"]
     assert len(result.executions) == 3
     assert tuple(item.capability_id for item in result.executions) == (
@@ -218,6 +229,7 @@ def test_empty_successful_http_probe_flows_through_downstream_stages() -> None:
 
     assert result.status is Status.SUCCESS
     assert result.context.get(PipelineStateKey.ALIVE_HOSTS) == ()
+    assert result.context.get(PipelineStateKey.HTTP_ENDPOINTS) == ()
     assert result.context.get(PipelineStateKey.ENDPOINTS) == []
     assert result.context.get(PipelineStateKey.TECHNOLOGIES) == []
     assert crawler.inputs == []

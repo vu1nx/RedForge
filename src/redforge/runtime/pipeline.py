@@ -334,7 +334,20 @@ class Pipeline:
             aggregate_status = combine_status(aggregate_status, result.status)
 
             if result.status in {Status.SUCCESS, Status.PARTIAL}:
-                context.publish_many(normalized.explicit)
+                try:
+                    context.publish_many(normalized.explicit)
+                except Exception:
+                    result = _invalid_result(capability.name)
+                    last_result = result
+                    executions[-1] = CapabilityExecution(
+                        capability_name=capability.name,
+                        result=result,
+                        capability_id=runtime_id,
+                    )
+                    aggregate_status = combine_status(
+                        aggregate_status, result.status
+                    )
+                    break
                 if normalized.legacy is not None:
                     legacy_key, legacy_value = normalized.legacy
                     state[legacy_key] = legacy_value

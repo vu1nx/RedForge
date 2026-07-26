@@ -96,10 +96,12 @@ operational error publish nothing; the existing sequential stop rules apply.
 One Subfinder invocation remains one `subdomain_discovery` history entry. See
 [Subfinder Passive Recon Integration](subfinder-integration.md).
 
-HTTP probing follows the same publication boundary. The HTTPX provider retains
-typed endpoint evidence internally and returns approved responsive `Host`
-identities to `HttpProbeCapability`. Complete and usable partial results
-publish one immutable `ALIVE_HOSTS` tuple; a successful empty probe publishes
-`()`. Failure, unavailable execution, and operational error publish nothing.
-One HTTPX invocation remains one `http_probe` execution-history entry. See
+HTTP probing follows the same publication boundary. The HTTPX provider returns
+typed endpoint evidence to `HttpProbeCapability`, which derives responsive
+`Host` identities from it. Complete and usable partial results publish one
+atomic batch containing immutable `ALIVE_HOSTS` and `HTTP_ENDPOINTS` tuples; a
+successful empty probe publishes `()` for both. A partial result without
+endpoint evidence becomes failure. Failure, unavailable execution, and
+operational error publish neither state. One HTTPX invocation remains one
+`http_probe` execution-history entry. See
 [HTTPX Web Probe Integration](httpx-integration.md).

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 from redforge.sdk.result import StatePublication
+from redforge.sdk.state import validate_pipeline_state_value
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,8 @@ class Context:
         keys = tuple(item.key for item in typed_batch)
         if len(keys) != len(set(keys)):
             raise ValueError("publication batch contains duplicate state keys")
+        for publication in typed_batch:
+            validate_pipeline_state_value(publication.key, publication.value)
         updates: dict[str, Any] = {
             publication.key: publication.value for publication in typed_batch
         }

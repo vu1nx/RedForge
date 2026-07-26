@@ -63,7 +63,30 @@ def test_default_definitions_have_complete_stable_metadata() -> None:
     assert all(definition.tags for definition in registry.all())
     assert registry.require(CapabilityId("http_probe")).provides == (
         PipelineStateKey.ALIVE_HOSTS,
+        PipelineStateKey.HTTP_ENDPOINTS,
     )
     assert registry.require(CapabilityId("web_crawl")).requires == (
         PipelineStateKey.ALIVE_HOSTS,
     )
+
+
+def test_http_probe_is_the_single_producer_for_both_probe_outputs() -> None:
+    registry = create_default_registry()
+
+    assert tuple(
+        item.capability_id
+        for item in registry.producers_for(PipelineStateKey.ALIVE_HOSTS)
+    ) == (CapabilityId("http_probe"),)
+    assert tuple(
+        item.capability_id
+        for item in registry.producers_for(PipelineStateKey.HTTP_ENDPOINTS)
+    ) == (CapabilityId("http_probe"),)
+
+    plan = ExecutionPlanner(registry).plan(
+        goals=(
+            PipelineStateKey.ALIVE_HOSTS,
+            PipelineStateKey.HTTP_ENDPOINTS,
+        ),
+        available_state=(PipelineStateKey.HOSTS,),
+    )
+    assert plan.required_capabilities == ("http_probe",)

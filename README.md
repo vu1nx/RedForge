@@ -77,6 +77,36 @@ tests. RedForge does not install external tools automatically. See the
 [End-to-End Pipeline](docs/end-to-end-pipeline.md) for the complete state graph,
 empty-result behavior, and failure boundaries.
 
+## Scan Configuration
+
+Applications can validate one explicitly authorized DNS-root target and prepare
+state-driven planner input without constructing capabilities or executing
+providers:
+
+```python
+from redforge.application import (
+    ScanConfig,
+    create_initial_context,
+    prepare_scan,
+)
+from redforge.planning import create_default_registry
+
+# Documentation-only placeholder: the caller remains responsible for permission.
+config = ScanConfig.for_full_assessment("example.com")
+prepared = prepare_scan(
+    config=config,
+    registry=create_default_registry(),
+)
+context = create_initial_context(config)
+
+assert prepared.plan.goals == config.requested_outputs
+assert context.target_id == "example.com"
+```
+
+`ScanConfig` contains application intent and authorization policy. It does not
+contain tool identities, executable options, providers, or runtime state.
+See [Scan Configuration](docs/scan-configuration.md).
+
 ## Capability Registry
 
 Typed capability definitions are the shared source for planning metadata and

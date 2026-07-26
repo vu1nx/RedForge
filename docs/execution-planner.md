@@ -144,6 +144,12 @@ Execution planning is capability- and state-driven. External tool identities
 do not appear in execution plans. See [End-to-End Pipeline](end-to-end-pipeline.md)
 for the full closure and runtime-readiness contract.
 
+Application [Scan Configuration](scan-configuration.md) translates validated
+requested output states and disabled capability policy into a normal
+`ExecutionPlan`. It filters definition metadata before planning; it does not
+add target, scope, tool, provider, or runtime conditions to
+`ExecutionPlanner`.
+
 Execution is sequential. Parallel branches, retries, fallback providers,
 dynamic replanning, optional dependency syntax, persistence, and resume are
 future concerns.

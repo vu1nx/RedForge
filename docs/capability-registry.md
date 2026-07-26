@@ -167,3 +167,9 @@ canonical state has exactly one default producer, and every default definition
 has one lazy factory. Completeness and producer uniqueness are derived from the
 registries in tests rather than maintained as another runtime mapping. See
 [End-to-End Pipeline](end-to-end-pipeline.md).
+
+Application capability restrictions derive a new definition registry with
+disabled typed IDs removed. Before doing so, plan preparation verifies the
+complete requested closure and rejects any required disabled capability. The
+planner is not taught policy conditions and never substitutes another tool or
+provider. See [Scan Configuration](scan-configuration.md).

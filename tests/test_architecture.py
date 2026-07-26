@@ -679,3 +679,100 @@ def test_default_capability_and_tool_identities_are_disjoint() -> None:
     }
 
     assert capability_values.isdisjoint(tool_values)
+
+
+def test_scan_config_is_confined_to_the_application_boundary() -> None:
+    forbidden_packages = ("capabilities", "adapters", "runtime")
+    for package in forbidden_packages:
+        for path in (_SOURCE_ROOT / package).glob("*.py"):
+            assert not any(
+                name == "redforge.application"
+                or name.startswith("redforge.application.")
+                for name in _imports(path)
+            ), path
+
+    for path in (
+        _SOURCE_ROOT / "planning" / "planner.py",
+        _SOURCE_ROOT / "planning" / "builder.py",
+        _SOURCE_ROOT / "sdk" / "tool.py",
+    ):
+        assert not any(
+            name == "redforge.application"
+            or name.startswith("redforge.application.")
+            for name in _imports(path)
+        ), path
+
+
+def test_planner_and_builder_do_not_inspect_targets_or_scope() -> None:
+    for filename in ("planner.py", "builder.py"):
+        source = (_SOURCE_ROOT / "planning" / filename).read_text(
+            encoding="utf-8"
+        )
+        assert "target_id" not in source
+        assert "ScanTarget" not in source
+        assert "ScanScope" not in source
+
+
+def test_application_scan_config_has_no_adapter_tool_or_runtime_execution_imports() -> None:
+    imports = _imports(_SOURCE_ROOT / "application" / "scan_config.py")
+    forbidden = (
+        "redforge.adapters",
+        "redforge.capabilities",
+        "redforge.runtime.pipeline",
+        "redforge.sdk.tool",
+        "subprocess",
+        "socket",
+        "urllib",
+    )
+
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in forbidden
+    )
+
+
+def test_scan_config_models_contain_no_tool_runtime_or_secret_fields() -> None:
+    from dataclasses import fields
+
+    from redforge.application import PreparedScan, ScanConfig, ScanLimits
+    from redforge.domain import ScanScope, ScanTarget
+
+    names = {
+        item.name
+        for model in (ScanTarget, ScanScope, ScanLimits, ScanConfig, PreparedScan)
+        for item in fields(model)
+    }
+    forbidden = {
+        "tool_id",
+        "executable",
+        "arguments",
+        "argv",
+        "provider",
+        "runner",
+        "context",
+        "password",
+        "credentials",
+        "cookie",
+        "authorization_header",
+        "proxy",
+        "plugin",
+        "output_path",
+        "metadata",
+    }
+
+    assert names.isdisjoint(forbidden)
+
+
+def test_no_cli_or_configuration_file_loader_was_added() -> None:
+    forbidden_imports = {
+        "argparse",
+        "click",
+        "typer",
+        "rich",
+        "yaml",
+        "tomllib",
+        "dotenv",
+    }
+    for path in _SOURCE_ROOT.rglob("*.py"):
+        assert _imports(path).isdisjoint(forbidden_imports), path

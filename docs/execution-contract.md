@@ -89,6 +89,11 @@ Planned steps and configured runtime instances are associated through typed
 Execution history retains existing serialized names and records the typed ID
 for planned or explicitly configured executions.
 
+`allow_partial_results` in application `ScanConfig` is a post-execution
+acceptance policy for future orchestration. It does not change capability
+status mapping, runtime precedence, continuation, publication, retry, or
+history behavior.
+
 External process outcomes are deliberately separate from capability `Result`
 values. A tool adapter consumes `ToolExecutionResult`, parses domain output,
 and chooses the appropriate capability status. This preserves existing

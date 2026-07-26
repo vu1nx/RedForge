@@ -30,6 +30,22 @@ by the planner or builder and is not an executable argument model. Applications
 are responsible for authorization before execution; provider adapters perform
 their established scope and input validation.
 
+The application-facing [Scan Configuration](scan-configuration.md) now provides
+the validated path into this boundary:
+
+```text
+Raw application input
+        -> ScanTarget
+        -> ScanScope
+        -> ScanConfig
+        -> PreparedScan
+        -> ExecutionPlan + initial Context
+```
+
+Syntactic acceptance by `ScanTarget` and application approval in `ScanScope`
+do not prove ownership or legal permission. The caller remains responsible for
+authorization.
+
 Execution planning is capability- and state-driven.
 
 External tool identities do not appear in execution plans.

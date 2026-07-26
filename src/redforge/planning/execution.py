@@ -12,6 +12,7 @@ from redforge.planning.factories import (
 )
 from redforge.planning.models import ExecutionPlan, state_keys
 from redforge.planning.planner import ExecutionPlanner
+from redforge.runtime.execution_policy import ExecutionPolicy
 from redforge.runtime.pipeline import Pipeline, PipelineResult
 from redforge.sdk.context import Context
 
@@ -49,7 +50,13 @@ class PlannedExecution:
         """Build but do not execute a fresh pipeline for an inspectable plan."""
         return self._builder.build(plan)
 
-    def execute(self, *, plan: ExecutionPlan, context: Context) -> PipelineResult:
+    def execute(
+        self,
+        *,
+        plan: ExecutionPlan,
+        context: Context,
+        policy: ExecutionPolicy | None = None,
+    ) -> PipelineResult:
         """Build and execute a plan through the existing Pipeline runtime."""
         if type(cast(object, plan)) is not ExecutionPlan:
             raise InvalidPlanningInputError(
@@ -62,14 +69,25 @@ class PlannedExecution:
             raise InvalidPlanningInputError(
                 "execution context is missing plan-available state"
             )
-        return self.build(plan).run(context)
+        pipeline = self.build(plan)
+        if policy is None:
+            return pipeline.run(context)
+        return pipeline.run(context, policy=policy)
 
     def run(
-        self, *, goals: Iterable[str], initial_context: Context
+        self,
+        *,
+        goals: Iterable[str],
+        initial_context: Context,
+        policy: ExecutionPolicy | None = None,
     ) -> PipelineResult:
         """Plan, build, and execute one isolated run."""
         plan = self.plan(goals=goals, context=initial_context)
-        return self.execute(plan=plan, context=initial_context)
+        return self.execute(
+            plan=plan,
+            context=initial_context,
+            policy=policy,
+        )
 
 
 def create_default_planned_execution(

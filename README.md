@@ -107,6 +107,59 @@ assert context.target_id == "example.com"
 contain tool identities, executable options, providers, or runtime state.
 See [Scan Configuration](docs/scan-configuration.md).
 
+## Application Orchestration
+
+`ScanOrchestrator` connects validated application intent to the existing
+planner, factory, builder, Context, and runtime contracts:
+
+```python
+from redforge.application import (
+    ReadinessRegistry,
+    ScanConfig,
+    ScanLimits,
+    ScanOrchestrator,
+    ScanPreflightError,
+)
+from redforge.planning import create_default_registry
+from redforge.sdk import ToolRegistry
+
+# The caller supplies factories configured with authorized production
+# providers or deterministic offline fakes.
+orchestrator = ScanOrchestrator(
+    capability_registry=create_default_registry(),
+    factory_registry=factories,
+    readiness_registry=ReadinessRegistry(
+        tool_registry=ToolRegistry(caller_tool_definitions),
+        tool_probe=caller_tool_readiness_probe,
+        provider_probes=caller_provider_readiness_probes,
+    ),
+)
+try:
+    result = orchestrator.run(
+        ScanConfig.for_full_assessment(
+            "authorized.example",
+            limits=ScanLimits(
+                max_subdomains=1_000,
+                max_crawl_endpoints=10_000,
+                overall_timeout_seconds=1_800,
+            ),
+        )
+    )
+except ScanPreflightError as error:
+    readiness_checks = error.result.checks
+    raise
+
+runtime_status = result.runtime_status
+accepted_by_policy = result.accepted
+limit_or_deadline_failure = result.policy_violation
+```
+
+The example does not verify legal permission and does not provide hidden
+network or tool composition. See
+[Application Scan Orchestration](docs/application-orchestration.md) and
+[Scan Limits](docs/scan-limits.md). Composition readiness is documented in
+[Preflight Readiness](docs/preflight-readiness.md).
+
 ## Capability Registry
 
 Typed capability definitions are the shared source for planning metadata and
@@ -366,6 +419,35 @@ fallback without double counting; evidence confidence, data completeness, and
 endpoint presence remain separate and never change priority. See
 [Risk Intelligence](docs/risk-intelligence.md) for the scoring contract,
 uncertainty handling, identity semantics, and limitations.
+
+## Minimal CLI
+
+The application-facing CLI validates a canonical DNS target, applies a
+reconnaissance or full preset, performs readiness preflight, and delegates one
+run to the existing application orchestrator:
+
+```text
+redforge scan authorized.example
+redforge scan authorized.example --preset full --allow-partial-results
+python -m redforge.cli scan --help
+```
+
+Only scan systems you are explicitly authorized to assess. Built-in safety
+limits are always applied, and this interface exposes no tool arguments,
+credentials, provider configuration, report export, retry, or limit-bypass
+flags. See [Minimal CLI](docs/cli.md) for presets, output behavior, and exit
+codes.
+
+Human output is the default. Automation can request one versioned, sanitized
+JSON summary on stdout:
+
+```text
+redforge scan authorized.example --output json
+```
+
+The exit code remains authoritative. JSON output does not contain evidence and
+does not create a report file. See
+[Deterministic JSON Output](docs/json-output.md) for schema version 1.
 
 ## License
 

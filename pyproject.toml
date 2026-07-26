@@ -26,6 +26,9 @@ Homepage = "https://github.com/vu1nx/RedForge"
 Repository = "https://github.com/vu1nx/RedForge"
 Issues = "https://github.com/vu1nx/RedForge/issues"
 
+[project.scripts]
+redforge = "redforge.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/redforge"]
 

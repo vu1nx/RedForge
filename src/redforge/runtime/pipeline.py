@@ -5,12 +5,21 @@ from dataclasses import dataclass
 from typing import Any, TypeGuard, cast
 
 from redforge.domain.target import Target
+from redforge.runtime.execution_policy import (
+    DeadlinePhase,
+    DeadlineViolation,
+    ExecutionDeadlineExceeded,
+    ExecutionPolicy,
+    ExecutionPolicyViolation,
+    StateLimitExceeded,
+    StateLimitViolation,
+)
 from redforge.runtime.pipeline_state import CAPABILITY_OUTPUT_CONTRACTS
 from redforge.sdk.capability import Capability
 from redforge.sdk.capability_id import CapabilityId, normalize_capability_id
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, StatePublication, Status
-from redforge.sdk.state import PipelineStateKey
+from redforge.sdk.state import PipelineStateKey, validate_pipeline_state_value
 
 _STATUS_PRECEDENCE: dict[Status, int] = {
     Status.SUCCESS: 0,
@@ -101,6 +110,12 @@ class CapabilityExecution:
 
     capability_id: CapabilityId | None = None
     """Typed identity when execution was explicitly configured or planned."""
+
+    executed: bool = True
+    """Whether the capability implementation was invoked."""
+
+    policy_violation: ExecutionPolicyViolation | None = None
+    """Typed sanitized policy failure associated with this history entry."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,7 +263,12 @@ class Pipeline:
             raise ValueError(f"duplicate capability name: '{capability.name}'")
         self._entries.append(_PipelineEntry(capability, identity))
 
-    def run(self, target: Target | str | Context) -> PipelineResult:
+    def run(
+        self,
+        target: Target | str | Context,
+        *,
+        policy: ExecutionPolicy | None = None,
+    ) -> PipelineResult:
         """Execute registered capabilities sequentially.
 
         Args:
@@ -284,6 +304,29 @@ class Pipeline:
         for entry in self._entries:
             capability = entry.capability
             runtime_id = entry.capability_id
+            try:
+                if policy is not None:
+                    policy.check_deadline()
+            except ExecutionDeadlineExceeded:
+                violation = DeadlineViolation(
+                    phase=DeadlinePhase.BEFORE_CAPABILITY
+                )
+                result = _policy_failure(violation)
+                last_result = result
+                executions.append(
+                    CapabilityExecution(
+                        capability_name=capability.name,
+                        result=result,
+                        capability_id=runtime_id,
+                        executed=False,
+                        policy_violation=violation,
+                    )
+                )
+                aggregate_status = combine_status(
+                    aggregate_status,
+                    result.status,
+                )
+                break
             if runtime_id is None:
                 try:
                     legacy_id = normalize_capability_id(capability.name)
@@ -297,6 +340,7 @@ class Pipeline:
             else:
                 declared_outputs = self._output_contracts.get(runtime_id)
             normalized = _NormalizedPublications()
+            policy_violation: ExecutionPolicyViolation | None = None
             try:
                 candidate = cast(object, capability.execute(context))
             except Exception:
@@ -323,12 +367,34 @@ class Pipeline:
                 else:
                     result = _invalid_result(capability.name)
 
+            if result.status in {Status.SUCCESS, Status.PARTIAL}:
+                try:
+                    for publication in normalized.explicit:
+                        validate_pipeline_state_value(
+                            publication.key,
+                            publication.value,
+                        )
+                    if policy is not None:
+                        policy.check_deadline()
+                        policy.validate_publications(normalized.explicit)
+                except ExecutionDeadlineExceeded:
+                    policy_violation = DeadlineViolation(
+                        phase=DeadlinePhase.AFTER_CAPABILITY
+                    )
+                    result = _policy_failure(policy_violation)
+                except StateLimitExceeded as error:
+                    policy_violation = error.violation
+                    result = _policy_failure(policy_violation)
+                except Exception:
+                    result = _invalid_result(capability.name)
+
             last_result = result
             executions.append(
                 CapabilityExecution(
                     capability_name=capability.name,
                     result=result,
                     capability_id=runtime_id,
+                    policy_violation=policy_violation,
                 )
             )
             aggregate_status = combine_status(aggregate_status, result.status)
@@ -357,9 +423,45 @@ class Pipeline:
 
         return PipelineResult(
             status=aggregate_status,
-            executed_capabilities=tuple(execution.capability_name for execution in executions),
+            executed_capabilities=tuple(
+                execution.capability_name
+                for execution in executions
+                if execution.executed
+            ),
             context=context,
             last_result=last_result,
             execution_order=execution_order,
             executions=tuple(executions),
         )
+
+
+def _policy_failure(
+    violation: ExecutionPolicyViolation,
+) -> Result[None]:
+    """Return one sanitized FAILURE for a typed execution-policy violation."""
+    if isinstance(violation, StateLimitViolation):
+        return Result(
+            status=Status.FAILURE,
+            data=None,
+            errors=[
+                "State limit exceeded: "
+                f"{violation.state_key.name} "
+                f"observed={violation.observed} "
+                f"allowed={violation.allowed}"
+            ],
+            metadata={
+                "error_kind": "state_limit_exceeded",
+                "state_key": violation.state_key.value,
+                "observed": violation.observed,
+                "allowed": violation.allowed,
+            },
+        )
+    return Result(
+        status=Status.FAILURE,
+        data=None,
+        errors=["Execution deadline exceeded"],
+        metadata={
+            "error_kind": "execution_deadline_exceeded",
+            "phase": violation.phase.value,
+        },
+    )

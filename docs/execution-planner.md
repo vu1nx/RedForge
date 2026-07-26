@@ -150,6 +150,18 @@ requested output states and disabled capability policy into a normal
 add target, scope, tool, provider, or runtime conditions to
 `ExecutionPlanner`.
 
+`ScanOrchestrator` calls this preparation boundary once and passes its immutable
+plan to the existing `PlannedExecution`/`PipelineBuilder` path. It does not
+manually order capabilities, inspect tools, or add runtime conditions. Build
+errors remain typed planning/build errors rather than fabricated runtime
+results. See [Application Scan Orchestration](application-orchestration.md).
+
+After preparation, preflight reads the ordered capability IDs from the
+immutable plan and resolves factory-owned readiness metadata. Tool and provider
+requirements never enter `ExecutionPlan`, and the planner does not import or
+evaluate readiness. Missing prerequisites do not trigger fallback or dynamic
+replanning. See [Preflight Readiness](preflight-readiness.md).
+
 Execution is sequential. Parallel branches, retries, fallback providers,
 dynamic replanning, optional dependency syntax, persistence, and resume are
 future concerns.

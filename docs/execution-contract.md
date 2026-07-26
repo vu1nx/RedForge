@@ -90,9 +90,35 @@ Execution history retains existing serialized names and records the typed ID
 for planned or explicitly configured executions.
 
 `allow_partial_results` in application `ScanConfig` is a post-execution
-acceptance policy for future orchestration. It does not change capability
-status mapping, runtime precedence, continuation, publication, retry, or
-history behavior.
+acceptance policy evaluated by `ScanOrchestrator`. It does not change
+capability status mapping, runtime precedence, continuation, publication,
+retry, or history behavior.
+
+Runtime status describes execution.
+
+`ScanResult.accepted` describes application policy. `SUCCESS` is accepted,
+`PARTIAL` follows `allow_partial_results`, and `FAILURE` or `ERROR` is rejected.
+The original runtime status, final Context, and execution history remain
+available unchanged.
+
+Orchestrated scans supply an optional neutral execution policy to the runtime.
+Typed canonical publications are contract-validated first, then collection
+limits and the post-step monotonic deadline are checked before atomic Context
+mutation. A state-limit or deadline violation is a sanitized `FAILURE` with
+typed violation data in execution history. It does not become `PARTIAL`, and
+the partial-result policy cannot accept it.
+
+The deadline is also checked before every capability. A pre-step deadline
+failure records a terminal unexecuted history outcome for that planned
+capability. Direct Pipeline execution without a policy retains the previous
+unlimited behavior. See [Scan Limits](scan-limits.md).
+
+Application preflight is distinct from runtime execution. A non-ready
+composition raises `ScanPreflightError` containing an immutable
+`PreflightResult`; no Context, Pipeline, runtime status, or `ScanResult` exists
+for that attempt. Normal capability failures after execution begins continue
+to use runtime `FAILURE`/`ERROR` exactly as before. Successful `ScanResult`
+retains its ready preflight result for auditability.
 
 External process outcomes are deliberately separate from capability `Result`
 values. A tool adapter consumes `ToolExecutionResult`, parses domain output,

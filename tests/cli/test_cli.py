@@ -1,0 +1,719 @@
+"""Offline tests for the thin application-facing command adapter."""
+
+import json
+from io import StringIO
+from typing import Any, cast
+
+import pytest  # type: ignore[reportMissingImports]
+
+from redforge.application import (
+    PreflightResult,
+    ReadinessCheckResult,
+    ReadinessReason,
+    ReadinessStatus,
+    ReadinessSubject,
+    ReadinessSubjectKind,
+    ScanConfig,
+    ScanPreflightError,
+    ScanResult,
+    prepare_scan,
+)
+from redforge.cli import (
+    JSON_SCHEMA_VERSION,
+    ExitCode,
+    OutputFormat,
+    ScanPreset,
+    build_parser,
+    main,
+    render_preflight_result,
+    render_scan_result,
+)
+from redforge.cli.main import parse_cli_args
+from redforge.planning import (
+    MissingCapabilityFactoryError,
+    create_default_registry,
+)
+from redforge.runtime import (
+    DeadlinePhase,
+    DeadlineViolation,
+    StateLimitViolation,
+)
+from redforge.runtime.pipeline import (
+    CapabilityExecution,
+    PipelineResult,
+)
+from redforge.sdk import (
+    Context,
+    PipelineStateKey,
+    Result,
+    Status,
+    ToolId,
+)
+
+
+def _scan_result(
+    config: ScanConfig,
+    *,
+    status: Status,
+    accepted: bool,
+    violation: StateLimitViolation | DeadlineViolation | None = None,
+) -> ScanResult:
+    prepared = prepare_scan(
+        config=config,
+        registry=create_default_registry(),
+    )
+    capability_result: Result[Any] = Result(status=status, data=None)
+    execution = CapabilityExecution(
+        capability_name="test_capability",
+        result=capability_result,
+        policy_violation=violation,
+    )
+    pipeline_result = PipelineResult(
+        status=status,
+        executed_capabilities=("test_capability",),
+        context=Context(target_id=config.scope.root.value),
+        last_result=capability_result,
+        execution_order=("test_capability",),
+        executions=(execution,),
+    )
+    return ScanResult(
+        config=config,
+        plan=prepared.plan,
+        preflight=PreflightResult(ready=True, checks=()),
+        pipeline_result=pipeline_result,
+        accepted=accepted,
+    )
+
+
+class FakeOrchestrator:
+    def __init__(
+        self,
+        *,
+        status: Status = Status.SUCCESS,
+        accepted: bool | None = None,
+        violation: StateLimitViolation | DeadlineViolation | None = None,
+        raised: BaseException | None = None,
+    ) -> None:
+        self.status = status
+        self.accepted = accepted
+        self.violation = violation
+        self.raised = raised
+        self.configs: list[ScanConfig] = []
+
+    def run(self, config: ScanConfig) -> ScanResult:
+        self.configs.append(config)
+        if self.raised is not None:
+            raise self.raised
+        accepted = (
+            self.accepted
+            if self.accepted is not None
+            else (
+                self.status is Status.SUCCESS
+                or (
+                    self.status is Status.PARTIAL
+                    and config.allow_partial_results
+                )
+            )
+        )
+        return _scan_result(
+            config,
+            status=self.status,
+            accepted=accepted,
+            violation=self.violation,
+        )
+
+
+def _run(
+    argv: list[str],
+    orchestrator: FakeOrchestrator,
+) -> tuple[int, str, str, int]:
+    stdout = StringIO()
+    stderr = StringIO()
+    factory_calls = 0
+
+    def factory() -> FakeOrchestrator:
+        nonlocal factory_calls
+        factory_calls += 1
+        return orchestrator
+
+    code = main(
+        argv,
+        orchestrator_factory=factory,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    return code, stdout.getvalue(), stderr.getvalue(), factory_calls
+
+
+def test_parser_is_fresh_and_defaults_to_reconnaissance() -> None:
+    first = build_parser()
+    second = build_parser()
+    options = parse_cli_args(["scan", "authorized.example"])
+
+    assert first is not second
+    assert options.target == "authorized.example"
+    assert options.preset is ScanPreset.RECONNAISSANCE
+    assert options.output_format is OutputFormat.HUMAN
+    assert not options.allow_partial_results
+
+
+def test_root_and_scan_help_are_non_exiting_and_authorization_safe() -> None:
+    for argv in (["--help"], ["scan", "--help"]):
+        code, stdout, stderr, factory_calls = _run(
+            argv,
+            FakeOrchestrator(),
+        )
+
+        assert code == ExitCode.ACCEPTED
+        assert "Only scan systems you are explicitly authorized" in stdout
+        assert stderr == ""
+        assert factory_calls == 0
+
+
+def test_success_uses_canonical_target_and_one_orchestrator_call() -> None:
+    orchestrator = FakeOrchestrator()
+
+    code, stdout, stderr, factory_calls = _run(
+        ["scan", "AUTHORIZED.example."],
+        orchestrator,
+    )
+
+    assert code == ExitCode.ACCEPTED
+    assert stderr == ""
+    assert factory_calls == 1
+    assert len(orchestrator.configs) == 1
+    assert orchestrator.configs[0].scope.root.value == "authorized.example"
+    assert orchestrator.configs[0].requested_outputs == (
+        PipelineStateKey.TECHNOLOGIES,
+    )
+    assert stdout == (
+        "Scan completed\n"
+        "Target: authorized.example\n"
+        "Preset: reconnaissance\n"
+        "Status: SUCCESS\n"
+        "Accepted: yes\n"
+        "Capabilities executed: 1\n"
+    )
+
+
+def test_full_preset_uses_full_assessment_constructor() -> None:
+    orchestrator = FakeOrchestrator()
+
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example", "--preset", "full"],
+        orchestrator,
+    )
+
+    assert code == ExitCode.ACCEPTED
+    assert stderr == ""
+    assert orchestrator.configs[0].requested_outputs == (
+        PipelineStateKey.RISK_INTELLIGENCE,
+    )
+    assert "Preset: full" in stdout
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        "https://authorized.example",
+        "192.0.2.10",
+        "*.authorized.example",
+        "user@authorized.example",
+    ),
+)
+def test_invalid_target_is_usage_error_before_composition(target: str) -> None:
+    code, stdout, stderr, factory_calls = _run(
+        ["scan", target],
+        FakeOrchestrator(),
+    )
+
+    assert code == ExitCode.INVALID_INPUT
+    assert stdout == ""
+    assert factory_calls == 0
+    assert stderr == "Invalid input: scan target or options are invalid\n"
+    assert "Traceback" not in stderr
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected_code", "expected_accepted"),
+    (
+        ("--allow-partial-results", ExitCode.ACCEPTED, "yes"),
+        (None, ExitCode.NOT_ACCEPTED, "no"),
+    ),
+)
+def test_partial_result_uses_application_acceptance_without_remapping(
+    flag: str | None,
+    expected_code: ExitCode,
+    expected_accepted: str,
+) -> None:
+    argv = ["scan", "authorized.example"]
+    if flag is not None:
+        argv.append(flag)
+    code, stdout, stderr, _ = _run(
+        argv,
+        FakeOrchestrator(status=Status.PARTIAL),
+    )
+
+    assert code == expected_code
+    assert stderr == ""
+    assert "Status: PARTIAL" in stdout
+    assert f"Accepted: {expected_accepted}" in stdout
+
+
+@pytest.mark.parametrize("status", (Status.FAILURE, Status.ERROR))
+def test_nonaccepted_runtime_results_use_stdout_and_exit_four(
+    status: Status,
+) -> None:
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example"],
+        FakeOrchestrator(status=status, accepted=False),
+    )
+
+    assert code == ExitCode.NOT_ACCEPTED
+    assert stderr == ""
+    assert f"Status: {status.name}" in stdout
+    assert "Accepted: no" in stdout
+
+
+@pytest.mark.parametrize(
+    ("violation", "expected"),
+    (
+        (
+            StateLimitViolation(
+                PipelineStateKey.TECHNOLOGIES,
+                observed=2,
+                allowed=1,
+            ),
+            "Policy violation: TECHNOLOGIES observed=2 allowed=1",
+        ),
+        (
+            DeadlineViolation(DeadlinePhase.AFTER_CAPABILITY),
+            "Policy violation: execution deadline exceeded",
+        ),
+    ),
+)
+def test_policy_failures_render_only_sanitized_public_data(
+    violation: StateLimitViolation | DeadlineViolation,
+    expected: str,
+) -> None:
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example"],
+        FakeOrchestrator(
+            status=Status.FAILURE,
+            accepted=False,
+            violation=violation,
+        ),
+    )
+
+    assert code == ExitCode.NOT_ACCEPTED
+    assert expected in stdout
+    assert stderr == ""
+
+
+def _preflight_error() -> ScanPreflightError:
+    result = PreflightResult(
+        ready=False,
+        checks=(
+            ReadinessCheckResult(
+                subject=ReadinessSubject(
+                    kind=ReadinessSubjectKind.TOOL_EXECUTABLE,
+                    tool_id=ToolId("offline_tool"),
+                ),
+                status=ReadinessStatus.UNAVAILABLE,
+                reason=ReadinessReason.EXECUTABLE_UNAVAILABLE,
+            ),
+        ),
+    )
+    return ScanPreflightError(result)
+
+
+def test_preflight_failure_uses_stderr_and_exit_three() -> None:
+    error = _preflight_error()
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example"],
+        FakeOrchestrator(raised=error),
+    )
+
+    assert code == ExitCode.NOT_READY
+    assert stdout == ""
+    assert stderr == (
+        "Scan could not start\n"
+        "Readiness checks failed:\n"
+        "- tool executable unavailable: offline_tool "
+        "(executable_unavailable)\n"
+    )
+    assert "Traceback" not in stderr
+
+
+def test_renderers_are_pure_and_deterministic() -> None:
+    error = _preflight_error()
+    first = render_preflight_result(error.result)
+    second = render_preflight_result(error.result)
+    config = ScanConfig.for_reconnaissance("authorized.example")
+    result = _scan_result(
+        config,
+        status=Status.SUCCESS,
+        accepted=True,
+    )
+
+    assert first == second
+    assert render_scan_result(
+        result,
+        preset=ScanPreset.RECONNAISSANCE,
+    ) == render_scan_result(
+        result,
+        preset=ScanPreset.RECONNAISSANCE,
+    )
+
+
+def test_composition_failure_is_sanitized_exit_three() -> None:
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example"],
+        FakeOrchestrator(
+            raised=MissingCapabilityFactoryError("secret_factory")
+        ),
+    )
+
+    assert code == ExitCode.NOT_READY
+    assert stdout == ""
+    assert stderr == "Scan could not start\nComposition is invalid\n"
+    assert "secret_factory" not in stderr
+
+
+def test_unexpected_error_is_sanitized_exit_five() -> None:
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example"],
+        FakeOrchestrator(
+            raised=ValueError("secret-token C:\\private\\path")
+        ),
+    )
+
+    assert code == ExitCode.INTERNAL_ERROR
+    assert stdout == ""
+    assert stderr == "RedForge encountered an unexpected internal failure\n"
+    assert "secret" not in stderr
+    assert "Traceback" not in stderr
+
+
+def test_keyboard_interrupt_is_exit_130_without_traceback() -> None:
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example"],
+        FakeOrchestrator(raised=KeyboardInterrupt()),
+    )
+
+    assert code == ExitCode.INTERRUPTED
+    assert stdout == ""
+    assert stderr == "Scan interrupted\n"
+
+
+def test_usage_error_does_not_construct_orchestrator() -> None:
+    code, stdout, stderr, factory_calls = _run([], FakeOrchestrator())
+
+    assert code == ExitCode.INVALID_INPUT
+    assert stdout == ""
+    assert factory_calls == 0
+    assert stderr == "Invalid command: the scan command is required\n"
+
+
+def _json_document(stdout: str) -> dict[str, Any]:
+    assert stdout.endswith("\n")
+    assert stdout.count("\n") == 1
+    payload = cast(dict[str, Any], json.loads(stdout))
+    assert isinstance(payload, dict)
+    return payload
+
+
+def test_json_output_option_is_typed_and_invalid_value_does_not_compose() -> None:
+    options = parse_cli_args(
+        ["scan", "authorized.example", "--output", "json"]
+    )
+    assert options.output_format is OutputFormat.JSON
+
+    code, stdout, stderr, factory_calls = _run(
+        ["scan", "authorized.example", "--output", "xml"],
+        FakeOrchestrator(),
+    )
+
+    assert code == ExitCode.INVALID_INPUT
+    assert stdout == ""
+    assert "invalid choice" in stderr
+    assert factory_calls == 0
+
+
+def test_explicit_human_output_preserves_default_document() -> None:
+    default = _run(["scan", "authorized.example"], FakeOrchestrator())
+    explicit = _run(
+        ["scan", "authorized.example", "--output", "human"],
+        FakeOrchestrator(),
+    )
+
+    assert default == explicit
+
+
+def test_json_success_has_versioned_complete_deterministic_schema() -> None:
+    argv = ["scan", "AUTHORIZED.example.", "--output", "json"]
+    first = _run(argv, FakeOrchestrator())
+    second = _run(argv, FakeOrchestrator())
+
+    assert first == second
+    code, stdout, stderr, factory_calls = first
+    payload = _json_document(stdout)
+    assert code == ExitCode.ACCEPTED
+    assert stderr == ""
+    assert factory_calls == 1
+    assert list(payload) == [
+        "schema_version",
+        "outcome",
+        "exit_code",
+        "target",
+        "preset",
+        "runtime_status",
+        "accepted",
+        "capabilities_executed",
+        "preflight",
+        "policy_violation",
+        "error",
+    ]
+    assert payload == {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "outcome": "completed",
+        "exit_code": 0,
+        "target": "authorized.example",
+        "preset": "reconnaissance",
+        "runtime_status": "success",
+        "accepted": True,
+        "capabilities_executed": 1,
+        "preflight": {
+            "ready": True,
+            "checks_total": 0,
+            "checks_failed": 0,
+            "failures": [],
+        },
+        "policy_violation": None,
+        "error": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("status", "allow_partial", "accepted", "exit_code"),
+    (
+        (Status.PARTIAL, True, True, ExitCode.ACCEPTED),
+        (Status.PARTIAL, False, False, ExitCode.NOT_ACCEPTED),
+        (Status.FAILURE, False, False, ExitCode.NOT_ACCEPTED),
+        (Status.ERROR, False, False, ExitCode.NOT_ACCEPTED),
+    ),
+)
+def test_json_completed_status_and_exit_code_are_not_rewritten(
+    status: Status,
+    allow_partial: bool,
+    accepted: bool,
+    exit_code: ExitCode,
+) -> None:
+    argv = ["scan", "authorized.example", "--output", "json"]
+    if allow_partial:
+        argv.append("--allow-partial-results")
+
+    code, stdout, stderr, _ = _run(
+        argv,
+        FakeOrchestrator(status=status, accepted=accepted),
+    )
+    payload = _json_document(stdout)
+
+    assert code == exit_code == payload["exit_code"]
+    assert stderr == ""
+    assert payload["outcome"] == "completed"
+    assert payload["runtime_status"] == status.value
+    assert payload["accepted"] is accepted
+    assert payload["error"] is None
+
+
+@pytest.mark.parametrize(
+    ("violation", "expected"),
+    (
+        (
+            StateLimitViolation(
+                PipelineStateKey.TECHNOLOGIES,
+                observed=11,
+                allowed=10,
+            ),
+            {
+                "type": "state_limit",
+                "reason_code": "state_limit_exceeded",
+                "state_key": "TECHNOLOGIES",
+                "observed": 11,
+                "allowed": 10,
+            },
+        ),
+        (
+            DeadlineViolation(DeadlinePhase.BEFORE_CAPABILITY),
+            {
+                "type": "deadline",
+                "reason_code": "deadline_exceeded",
+                "state_key": None,
+                "observed": None,
+                "allowed": None,
+            },
+        ),
+    ),
+)
+def test_json_policy_violation_is_typed_and_bounded(
+    violation: StateLimitViolation | DeadlineViolation,
+    expected: dict[str, Any],
+) -> None:
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example", "--output", "json"],
+        FakeOrchestrator(
+            status=Status.FAILURE,
+            accepted=False,
+            violation=violation,
+        ),
+    )
+    payload = _json_document(stdout)
+
+    assert code == payload["exit_code"] == ExitCode.NOT_ACCEPTED
+    assert stderr == ""
+    assert payload["policy_violation"] == expected
+    assert "context" not in stdout.lower()
+
+
+def test_json_preflight_failure_contains_only_stable_failed_checks() -> None:
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example", "--output", "json"],
+        FakeOrchestrator(raised=_preflight_error()),
+    )
+    payload = _json_document(stdout)
+
+    assert code == payload["exit_code"] == ExitCode.NOT_READY
+    assert stderr == ""
+    assert payload["outcome"] == "not_ready"
+    assert payload["runtime_status"] is None
+    assert payload["accepted"] is None
+    assert payload["capabilities_executed"] == 0
+    assert payload["error"] is None
+    assert payload["preflight"] == {
+        "ready": False,
+        "checks_total": 1,
+        "checks_failed": 1,
+        "failures": [
+            {
+                "subject_type": "tool_executable",
+                "subject_id": "offline_tool",
+                "status": "unavailable",
+                "reason_code": "executable_unavailable",
+                "message": "required executable is unavailable",
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        "https://authorized.example/private?token=secret",
+        "192.0.2.10",
+        "*.authorized.example",
+        "user:password@authorized.example",
+    ),
+)
+def test_json_invalid_target_is_sanitized_and_never_composes(
+    target: str,
+) -> None:
+    code, stdout, stderr, factory_calls = _run(
+        ["scan", target, "--output", "json"],
+        FakeOrchestrator(),
+    )
+    payload = _json_document(stdout)
+
+    assert code == payload["exit_code"] == ExitCode.INVALID_INPUT
+    assert stderr == ""
+    assert factory_calls == 0
+    assert payload["outcome"] == "invalid_input"
+    assert payload["target"] is None
+    assert payload["error"] == {
+        "reason_code": "invalid_target",
+        "message": "invalid scan target",
+    }
+    assert target not in stdout
+    assert "secret" not in stdout
+    assert "password" not in stdout
+
+
+def test_json_missing_target_is_handled_after_output_mode_resolution() -> None:
+    code, stdout, stderr, factory_calls = _run(
+        ["scan", "--output", "json"],
+        FakeOrchestrator(),
+    )
+    payload = _json_document(stdout)
+
+    assert code == payload["exit_code"] == ExitCode.INVALID_INPUT
+    assert stderr == ""
+    assert factory_calls == 0
+    assert payload["outcome"] == "invalid_input"
+    assert payload["target"] is None
+    assert payload["preset"] == "reconnaissance"
+
+
+def test_json_composition_failure_is_sanitized() -> None:
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example", "--output", "json"],
+        FakeOrchestrator(
+            raised=MissingCapabilityFactoryError("secret_factory")
+        ),
+    )
+    payload = _json_document(stdout)
+
+    assert code == payload["exit_code"] == ExitCode.NOT_READY
+    assert stderr == ""
+    assert payload["outcome"] == "not_ready"
+    assert payload["preflight"] is None
+    assert payload["error"] == {
+        "reason_code": "composition_failed",
+        "message": "scan composition is unavailable",
+    }
+    assert "secret_factory" not in stdout
+
+
+@pytest.mark.parametrize(
+    ("raised", "outcome", "exit_code", "reason_code", "message"),
+    (
+        (
+            ValueError("secret-token C:\\private\\path"),
+            "internal_error",
+            ExitCode.INTERNAL_ERROR,
+            "internal_error",
+            "an unexpected internal error occurred",
+        ),
+        (
+            KeyboardInterrupt(),
+            "interrupted",
+            ExitCode.INTERRUPTED,
+            "interrupted",
+            "scan was interrupted",
+        ),
+    ),
+)
+def test_json_internal_error_and_interrupt_are_single_sanitized_documents(
+    raised: BaseException,
+    outcome: str,
+    exit_code: ExitCode,
+    reason_code: str,
+    message: str,
+) -> None:
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example", "--output", "json"],
+        FakeOrchestrator(raised=raised),
+    )
+    payload = _json_document(stdout)
+
+    assert code == payload["exit_code"] == exit_code
+    assert stderr == ""
+    assert payload["outcome"] == outcome
+    assert payload["target"] is None
+    assert payload["preset"] is None
+    assert payload["runtime_status"] is None
+    assert payload["error"] == {
+        "reason_code": reason_code,
+        "message": message,
+    }
+    assert "secret-token" not in stdout
+    assert "private" not in stdout

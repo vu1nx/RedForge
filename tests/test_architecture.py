@@ -3,7 +3,8 @@
 import ast
 from pathlib import Path
 
-_SOURCE_ROOT = Path(__file__).parents[1] / "src" / "redforge"
+_REPOSITORY_ROOT = Path(__file__).parents[1]
+_SOURCE_ROOT = _REPOSITORY_ROOT / "src" / "redforge"
 
 
 def _imports(path: Path) -> set[str]:
@@ -224,6 +225,8 @@ def test_execution_history_is_capability_based_not_publication_based() -> None:
         "capability_name",
         "result",
         "capability_id",
+        "executed",
+        "policy_violation",
     )
 
 
@@ -764,9 +767,8 @@ def test_scan_config_models_contain_no_tool_runtime_or_secret_fields() -> None:
     assert names.isdisjoint(forbidden)
 
 
-def test_no_cli_or_configuration_file_loader_was_added() -> None:
+def test_cli_framework_is_confined_and_no_configuration_loader_was_added() -> None:
     forbidden_imports = {
-        "argparse",
         "click",
         "typer",
         "rich",
@@ -776,3 +778,358 @@ def test_no_cli_or_configuration_file_loader_was_added() -> None:
     }
     for path in _SOURCE_ROOT.rglob("*.py"):
         assert _imports(path).isdisjoint(forbidden_imports), path
+        if path != _SOURCE_ROOT / "cli" / "main.py":
+            assert "argparse" not in _imports(path), path
+
+
+def test_scan_orchestrator_has_no_adapter_tool_or_external_io_dependencies() -> None:
+    path = _SOURCE_ROOT / "application" / "orchestration.py"
+    imports = _imports(path)
+    forbidden = (
+        "redforge.adapters",
+        "redforge.capabilities",
+        "redforge.sdk.tool",
+        "subprocess",
+        "socket",
+        "urllib",
+        "pathlib",
+        "os",
+    )
+
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in forbidden
+    )
+
+
+def test_lower_layers_do_not_import_application_orchestration() -> None:
+    for package in ("capabilities", "adapters", "planning", "runtime", "sdk"):
+        for path in (_SOURCE_ROOT / package).rglob("*.py"):
+            assert "redforge.application.orchestration" not in _imports(path), path
+
+
+def test_scan_orchestrator_has_no_tool_cli_environment_or_report_branching() -> None:
+    source = (
+        _SOURCE_ROOT / "application" / "orchestration.py"
+    ).read_text(encoding="utf-8").lower()
+    for forbidden in (
+        "toolrunner",
+        "toolid",
+        "subfinder",
+        "httpx",
+        "katana",
+        "whatweb",
+        "argparse",
+        "typer",
+        "click",
+        "os.environ",
+        "getenv",
+        "open(",
+        "report",
+        "json",
+    ):
+        assert forbidden not in source
+
+
+def test_scan_result_has_no_raw_process_or_mutable_composition_fields() -> None:
+    from dataclasses import fields
+
+    from redforge.application import ScanResult
+
+    names = {item.name for item in fields(ScanResult)}
+    assert names == {
+        "config",
+        "plan",
+        "preflight",
+        "pipeline_result",
+        "accepted",
+    }
+    assert names.isdisjoint(
+        {
+            "stdout",
+            "stderr",
+            "argv",
+            "environment",
+            "executable",
+            "tool_runner",
+            "pipeline",
+            "registry",
+            "provider",
+            "report_writer",
+        }
+    )
+
+
+def test_scan_limits_remain_confined_to_application_translation() -> None:
+    for package in ("capabilities", "adapters", "planning", "runtime", "sdk"):
+        for path in (_SOURCE_ROOT / package).rglob("*.py"):
+            imports = _imports(path)
+            assert "redforge.application.scan_config" not in imports, path
+            assert "redforge.application.scan_limits" not in imports, path
+            assert "redforge.application" not in imports, path
+
+
+def test_runtime_execution_policy_is_tool_and_provider_neutral() -> None:
+    source = (
+        _SOURCE_ROOT / "runtime" / "execution_policy.py"
+    ).read_text(encoding="utf-8").lower()
+    for forbidden in (
+        "toolrunner",
+        "toolid",
+        "subfinder",
+        "httpx",
+        "katana",
+        "whatweb",
+        "subprocess",
+        "thread",
+        "signal",
+        "async",
+        "scanconfig",
+        "scanlimits",
+    ):
+        assert forbidden not in source
+
+
+def test_limit_enforcement_has_no_evidence_slicing_or_unsafe_timeout() -> None:
+    inspected = (
+        _SOURCE_ROOT / "runtime" / "execution_policy.py",
+        _SOURCE_ROOT / "runtime" / "pipeline.py",
+        _SOURCE_ROOT / "application" / "scan_limits.py",
+        _SOURCE_ROOT / "application" / "orchestration.py",
+    )
+    for path in inspected:
+        source = path.read_text(encoding="utf-8").lower()
+        assert "[:limit]" not in source
+        assert "[: limit]" not in source
+        assert "threading" not in source
+        assert "concurrent.futures" not in source
+        assert "signal." not in source
+        assert "asyncio" not in source
+
+
+def test_context_does_not_store_scan_limits_or_deadlines() -> None:
+    from dataclasses import fields
+
+    from redforge.sdk import Context
+
+    assert {item.name for item in fields(Context)}.isdisjoint(
+        {"limits", "scan_limits", "deadline", "execution_policy"}
+    )
+
+
+def test_runtime_and_capabilities_do_not_import_preflight() -> None:
+    for package in ("runtime", "capabilities"):
+        for path in (_SOURCE_ROOT / package).rglob("*.py"):
+            assert not any(
+                name == "redforge.application.preflight"
+                or name.startswith("redforge.application.preflight.")
+                for name in _imports(path)
+            ), path
+
+
+def test_generic_preflight_has_no_execution_target_or_adapter_dependencies() -> None:
+    path = _SOURCE_ROOT / "application" / "preflight.py"
+    imports = _imports(path)
+    forbidden_imports = (
+        "redforge.adapters",
+        "redforge.runtime",
+        "redforge.sdk.context",
+        "subprocess",
+        "socket",
+        "urllib",
+        "os",
+        "pathlib",
+    )
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in forbidden_imports
+    )
+    source = path.read_text(encoding="utf-8").lower()
+    for forbidden in (
+        "target_id",
+        "scan_target",
+        ".create(",
+        "pipeline(",
+        ".execute(",
+        "os.environ",
+        "getenv",
+        "subfinder",
+        "httpx",
+        "katana",
+        "whatweb",
+        "credential",
+        "authorization",
+        "stdout",
+        "stderr",
+    ):
+        assert forbidden not in source
+
+
+def test_execution_plan_remains_free_of_tool_and_readiness_fields() -> None:
+    from dataclasses import fields
+
+    from redforge.planning import ExecutionPlan, ExecutionStep
+
+    names = {
+        item.name for model in (ExecutionPlan, ExecutionStep) for item in fields(model)
+    }
+    assert names.isdisjoint(
+        {
+            "tool_id",
+            "tool_definition",
+            "provider",
+            "readiness",
+            "requirements",
+            "preflight",
+        }
+    )
+
+
+def test_cli_core_has_no_capability_adapter_tool_or_state_dependencies() -> None:
+    path = _SOURCE_ROOT / "cli" / "main.py"
+    imports = _imports(path)
+    forbidden = (
+        "redforge.adapters",
+        "redforge.capabilities",
+        "redforge.sdk.context",
+        "redforge.sdk.state",
+        "redforge.sdk.tool",
+        "subprocess",
+        "socket",
+        "urllib",
+        "pathlib",
+        "os",
+    )
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in forbidden
+    )
+    source = path.read_text(encoding="utf-8").lower()
+    for forbidden_text in (
+        "pipelinestatekey",
+        "toolrunner",
+        "shutil.which",
+        "os.environ",
+        "getenv",
+        "subdomain_discovery",
+        "host_resolution",
+        "http_probe",
+        "web_crawl",
+        "technology_detection",
+        "risk_intelligence",
+        "open(",
+    ):
+        assert forbidden_text not in source
+
+
+def test_lower_layers_do_not_import_cli() -> None:
+    for package in (
+        "application",
+        "planning",
+        "runtime",
+        "capabilities",
+        "adapters",
+        "sdk",
+    ):
+        for path in (_SOURCE_ROOT / package).rglob("*.py"):
+            assert not any(
+                name == "redforge.cli"
+                or name.startswith("redforge.cli.")
+                for name in _imports(path)
+            ), path
+
+
+def test_cli_composition_is_separate_from_parser_and_has_no_hidden_provider() -> None:
+    main_source = (_SOURCE_ROOT / "cli" / "main.py").read_text(
+        encoding="utf-8"
+    )
+    composition_source = (
+        _SOURCE_ROOT / "cli" / "composition.py"
+    ).read_text(encoding="utf-8")
+
+    assert "redforge.adapters" not in main_source
+    assert "VulnerabilityProvider" not in composition_source
+    assert "NvdAdapter" not in composition_source
+    assert "vulnerability_provider=" not in composition_source
+
+
+def test_cli_imports_have_no_top_level_calls_or_process_exit() -> None:
+    for relative_path in (
+        "cli/__init__.py",
+        "cli/main.py",
+        "cli/composition.py",
+        "cli/json_output.py",
+    ):
+        path = _SOURCE_ROOT / relative_path
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for statement in tree.body:
+            if isinstance(statement, (ast.Assign, ast.AnnAssign, ast.Expr)):
+                assert not any(
+                    isinstance(node, ast.Call) for node in ast.walk(statement)
+                ), path
+
+    wrapper = (_SOURCE_ROOT / "cli" / "__main__.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'if __name__ == "__main__":' in wrapper
+    assert "sys.exit(main())" in wrapper
+    assert "sys.exit" not in (
+        _SOURCE_ROOT / "cli" / "main.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_cli_console_script_metadata_targets_public_main() -> None:
+    metadata = (_REPOSITORY_ROOT / "pyproject.toml").read_text(
+        encoding="utf-8"
+    )
+
+    assert '[project.scripts]\nredforge = "redforge.cli:main"' in metadata
+
+
+def test_cli_json_renderer_has_no_adapter_tool_context_or_io_dependencies() -> None:
+    path = _SOURCE_ROOT / "cli" / "json_output.py"
+    imports = _imports(path)
+    forbidden = (
+        "redforge.adapters",
+        "redforge.capabilities",
+        "redforge.sdk.context",
+        "redforge.sdk.tool",
+        "subprocess",
+        "pathlib",
+        "os",
+        "time",
+        "datetime",
+        "random",
+        "uuid",
+    )
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in forbidden
+    )
+
+    source = path.read_text(encoding="utf-8").lower()
+    for forbidden_text in (
+        "default=str",
+        "asdict",
+        "__dict__",
+        "traceback",
+        "format_exc",
+        "repr(exc)",
+        "context.",
+        "final_context",
+        "execution_history",
+        "stdout",
+        "stderr",
+        "argv",
+        "environment",
+        "executable_path",
+        "open(",
+        "write_text",
+        "write_bytes",
+        "timestamp",
+    ):
+        assert forbidden_text not in source

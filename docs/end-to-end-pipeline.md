@@ -39,7 +39,12 @@ Raw application input
         -> ScanScope
         -> ScanConfig
         -> PreparedScan
-        -> ExecutionPlan + initial Context
+        -> ScanOrchestrator
+        -> ExecutionPlan
+        -> Preflight readiness
+        -> initial Context
+        -> Pipeline runtime
+        -> ScanResult
 ```
 
 Syntactic acceptance by `ScanTarget` and application approval in `ScanScope`
@@ -132,7 +137,21 @@ the production registry, planner, builder, facade, runtime, and intelligence
 capabilities, and produces a deterministic risk assessment without network,
 subprocess, external binaries, credentials, or live targets.
 
-RedForge remains a library runtime. Target authorization, CLI behavior,
-configuration loading, orchestration, persistence, retries, parallel
-execution, dynamic replanning, and report export are intentionally outside this
-milestone.
+RedForge remains a library runtime beneath a thin [minimal CLI](cli.md). The
+[application orchestrator](application-orchestration.md) owns one-shot
+execution of a validated config through this runtime; the CLI owns only
+argument parsing, preset selection, explicit composition, and result rendering.
+Human output is the default; deterministic
+[schema-versioned JSON](json-output.md) is an alternate bounded renderer over
+the same typed application outcome.
+Authorization decisions remain the operator's responsibility. Configuration
+files, long-running orchestration, scheduling, persistence, retries, parallel
+execution, dynamic replanning, limit-driven tool flags, forceful cancellation,
+and report export remain outside the boundary. Canonical publication limits
+and safe step-boundary deadlines are described in
+[Scan Limits](scan-limits.md).
+
+Before Context creation, application
+[preflight](preflight-readiness.md) checks only the factories, tool
+definitions, executables, and provider roles derived from the prepared plan.
+It does not probe the target or predict runtime success.

@@ -1,15 +1,19 @@
 """Explicit factories for translating planned names into runtime capabilities."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 from redforge.adapters.host_resolver import HostResolver
-from redforge.adapters.httpx import HttpxProbeProvider
-from redforge.adapters.katana import KatanaWebCrawlProvider
+from redforge.adapters.httpx import HTTPX_TOOL_ID, HttpxProbeProvider
+from redforge.adapters.katana import KATANA_TOOL_ID, KatanaWebCrawlProvider
 from redforge.adapters.nvd import VulnerabilityProvider
-from redforge.adapters.subfinder import SubfinderSubdomainProvider
+from redforge.adapters.subfinder import (
+    SUBFINDER_TOOL_ID,
+    SubfinderSubdomainProvider,
+)
 from redforge.adapters.technology_detection import (
+    WHATWEB_TOOL_ID,
     WhatWebTechnologyDetectionProvider,
 )
 from redforge.adapters.tool_runner import LocalSubprocessToolRunner
@@ -45,40 +49,109 @@ from redforge.sdk.capability_id import (
     normalize_capability_id,
 )
 from redforge.sdk.http_probe import HttpProbeProvider
+from redforge.sdk.readiness import (
+    ProviderRole,
+    ReadinessRequirement,
+)
 from redforge.sdk.subdomain_discovery import SubdomainProvider
 from redforge.sdk.technology_detection import TechnologyDetectionProvider
-from redforge.sdk.tool import ToolRunner
+from redforge.sdk.tool import ToolId, ToolRunner
 from redforge.sdk.web_crawl import WebCrawlProvider
 
 type CapabilityFactory = Callable[[], Capability]
+
+SUBDOMAIN_PROVIDER_ROLE = ProviderRole("subdomain_discovery_provider")
+HTTP_PROBE_PROVIDER_ROLE = ProviderRole("http_probe_provider")
+WEB_CRAWL_PROVIDER_ROLE = ProviderRole("web_crawl_provider")
+TECHNOLOGY_PROVIDER_ROLE = ProviderRole("technology_detection_provider")
+VULNERABILITY_PROVIDER_ROLE = ProviderRole("vulnerability_provider")
+
+
+def _external_requirement(
+    provider: object | None,
+    *,
+    provider_role: ProviderRole,
+    tool_id: ToolId,
+) -> tuple[ReadinessRequirement, ...]:
+    if provider is not None:
+        return (
+            ReadinessRequirement.provider(
+                provider_role,
+                configuration_present=True,
+            ),
+        )
+    return (ReadinessRequirement.tool(tool_id),)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CapabilityFactoryDefinition:
+    """Lazy factory plus immutable, construction-free readiness metadata."""
+
+    capability_id: CapabilityId
+    factory: CapabilityFactory = field(repr=False, compare=False)
+    requirements: tuple[ReadinessRequirement, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(cast(object, self.capability_id), CapabilityId):
+            raise TypeError("factory definition capability ID is invalid")
+        if not callable(cast(object, self.factory)):
+            raise TypeError("factory definition requires a callable")
+        requirements_value = cast(object, self.requirements)
+        if not isinstance(requirements_value, tuple) or not all(
+            isinstance(item, ReadinessRequirement)
+            for item in cast(tuple[object, ...], requirements_value)
+        ):
+            raise TypeError("factory requirements must be an immutable tuple")
+        typed = cast(tuple[ReadinessRequirement, ...], requirements_value)
+        if len(typed) != len(set(typed)):
+            raise ValueError("factory requirements contain duplicates")
+        object.__setattr__(self, "requirements", tuple(sorted(typed)))
 
 
 class CapabilityFactoryRegistry:
     """Register and invoke one explicit factory per typed capability identity."""
 
     def __init__(self) -> None:
-        self._factories: dict[CapabilityId, CapabilityFactory] = {}
+        self._definitions: dict[
+            CapabilityId, CapabilityFactoryDefinition
+        ] = {}
 
     def register(
         self,
         capability_id: CapabilityId | str,
         factory: CapabilityFactory,
+        *,
+        declared_capability_id: CapabilityId | str | None = None,
+        requirements: tuple[ReadinessRequirement, ...] = (),
     ) -> None:
         """Register a callable factory without silent replacement."""
         try:
             identity = normalize_capability_id(capability_id)
         except (TypeError, ValueError):
             raise InvalidCapabilityFactoryError("invalid") from None
-        if identity in self._factories:
+        if identity in self._definitions:
             raise InvalidCapabilityFactoryError(identity.value)
         if not callable(cast(object, factory)):
             raise InvalidCapabilityFactoryError(identity.value)
-        self._factories[identity] = factory
+        try:
+            declared = normalize_capability_id(
+                declared_capability_id
+                if declared_capability_id is not None
+                else identity
+            )
+            definition = CapabilityFactoryDefinition(
+                capability_id=declared,
+                factory=factory,
+                requirements=requirements,
+            )
+        except (TypeError, ValueError):
+            raise InvalidCapabilityFactoryError(identity.value) from None
+        self._definitions[identity] = definition
 
     @property
     def ids(self) -> tuple[CapabilityId, ...]:
         """Return registered typed identities in deterministic order."""
-        return tuple(sorted(self._factories))
+        return tuple(sorted(self._definitions))
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -91,7 +164,18 @@ class CapabilityFactoryRegistry:
             identity = normalize_capability_id(capability_id)
         except (TypeError, ValueError):
             return False
-        return identity in self._factories
+        return identity in self._definitions
+
+    def definition_for(
+        self,
+        capability_id: CapabilityId | str,
+    ) -> CapabilityFactoryDefinition | None:
+        """Return immutable lazy-factory metadata without calling the factory."""
+        try:
+            identity = normalize_capability_id(capability_id)
+        except (TypeError, ValueError):
+            return None
+        return self._definitions.get(identity)
 
     def create(self, capability_id: CapabilityId | str) -> Capability:
         """Create and validate one fresh runtime capability."""
@@ -100,12 +184,12 @@ class CapabilityFactoryRegistry:
         except (TypeError, ValueError):
             raise MissingCapabilityFactoryError("invalid") from None
         try:
-            factory = self._factories[identity]
+            definition = self._definitions[identity]
         except KeyError:
             raise MissingCapabilityFactoryError(identity.value) from None
 
         try:
-            candidate = cast(object, factory())
+            candidate = cast(object, definition.factory())
         except Exception:
             raise InvalidCapabilityFactoryError(
                 identity.value, failed=True
@@ -205,6 +289,11 @@ def create_default_factory_registry(
                 )
             )
         ),
+        requirements=_external_requirement(
+            configured.subdomain_provider,
+            provider_role=SUBDOMAIN_PROVIDER_ROLE,
+            tool_id=SUBFINDER_TOOL_ID,
+        ),
     )
     registry.register(
         HOST_RESOLUTION,
@@ -223,6 +312,11 @@ def create_default_factory_registry(
                 )
             )
         ),
+        requirements=_external_requirement(
+            configured.http_transport,
+            provider_role=HTTP_PROBE_PROVIDER_ROLE,
+            tool_id=HTTPX_TOOL_ID,
+        ),
     )
     registry.register(
         WEB_CRAWL,
@@ -236,6 +330,11 @@ def create_default_factory_registry(
                     )
                 )
             )
+        ),
+        requirements=_external_requirement(
+            configured.web_crawler,
+            provider_role=WEB_CRAWL_PROVIDER_ROLE,
+            tool_id=KATANA_TOOL_ID,
         ),
     )
     registry.register(
@@ -251,12 +350,25 @@ def create_default_factory_registry(
                 )
             )
         ),
+        requirements=_external_requirement(
+            configured.technology_detector,
+            provider_role=TECHNOLOGY_PROVIDER_ROLE,
+            tool_id=WHATWEB_TOOL_ID,
+        ),
     )
     registry.register(ASSET_INTELLIGENCE, AssetIntelligenceCapability)
     registry.register(
         VULNERABILITY_INTELLIGENCE,
         lambda: VulnerabilityIntelligenceCapability(
             provider=configured.vulnerability_provider
+        ),
+        requirements=(
+            ReadinessRequirement.provider(
+                VULNERABILITY_PROVIDER_ROLE,
+                configuration_present=(
+                    configured.vulnerability_provider is not None
+                ),
+            ),
         ),
     )
     registry.register(KNOWLEDGE_GRAPH, KnowledgeGraphCapability)

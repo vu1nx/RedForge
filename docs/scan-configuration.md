@@ -105,13 +105,24 @@ hosts, responsive hosts, HTTP endpoints, crawler endpoints, technology
 evidence, and overall elapsed execution time. Defaults are conservative and
 hard maxima reject excessive values.
 
-These values constrain future orchestration and evidence admission. Existing
-adapters retain their independently accepted safety bounds. This milestone
-does not duplicate adapter flags or add inconsistent slicing to capabilities.
+The application orchestrator maps the six collection fields to typed canonical
+states and maps `overall_timeout_seconds` to an absolute monotonic deadline.
+The runtime enforces the resulting neutral policy immediately before atomic
+Context publication. Existing adapters retain their independently accepted
+safety bounds; no application limit becomes an adapter flag or evidence slice.
+See [Scan Limits](scan-limits.md).
 
 `allow_partial_results` records whether the application may accept a final
-`PARTIAL` result. It is a future post-execution orchestration decision and does
-not alter runtime status precedence or publication.
+`PARTIAL` result. It is a post-execution orchestration decision and does not
+alter runtime status precedence or publication. The
+[application orchestrator](application-orchestration.md) now evaluates this
+acceptance policy after runtime execution.
+
+Readiness preflight does not inspect collection limits or evaluate the runtime
+deadline. It runs after `prepare_scan()` and before Context creation, using only
+the prepared plan and explicit composition metadata. Required disabled
+capabilities therefore still fail during preparation before any readiness
+probe. See [Preflight Readiness](preflight-readiness.md).
 
 ## Preparation and Context seeding
 
@@ -123,7 +134,7 @@ from redforge.application import (
 )
 from redforge.planning import create_default_registry
 
-config = ScanConfig.for_reconnaissance("example.com")
+config = ScanConfig.for_reconnaissance("authorized.example")
 prepared = prepare_scan(
     config=config,
     registry=create_default_registry(),
@@ -141,9 +152,9 @@ configuration are not stored in Context.
 
 ## Current boundary
 
-There is no CLI, interactive input, configuration-file loader,
-environment-variable loader, orchestration service, persistence, retry,
-caching, report export, provider installation, or real scan execution in this
-contract. Future orchestration may enforce application evidence limits and
-evaluate the partial-result policy while continuing to use the unchanged
-planner, builder, runtime, and adapters.
+This configuration contract performs no CLI parsing, interactive input,
+configuration-file loading, environment-variable loading, persistence, retry,
+caching, report export, or provider installation. The [minimal CLI](cli.md)
+constructs these canonical presets directly and exposes no alternate
+configuration source. Long-running workflow management, persistence, report
+export, and forceful cancellation remain absent.

@@ -208,3 +208,10 @@ HTTPX tests use the same fake boundary and likewise require no installed
 binary, network, credentials, target files, or platform shell.
 Katana and WhatWeb tests also use `FakeToolRunner`; they require no external
 executables, network access, credentials, or authorized live targets.
+
+Complete pipeline tests inject provider-level fakes for every external boundary,
+including vulnerability data. They exercise the real capability registry,
+planner, factory registry, builder, and runtime without subprocess, network, or
+filesystem dependencies. Tool identities remain confined to adapter
+composition: execution planning is capability- and state-driven, and external
+tool identities do not appear in execution plans.

@@ -38,28 +38,44 @@ through explicit factories, and execute them through the existing sequential
 runtime. See [Execution Planning and Runtime Integration](docs/execution-planner.md).
 
 ```python
-from redforge.domain.knowledge_graph import KnowledgeGraph
-from redforge.planning import create_default_planned_execution
+from redforge.planning import (
+    ExecutionPlanner,
+    PipelineBuilder,
+    PlannedExecution,
+    create_default_factory_registry,
+    create_default_registry,
+)
 from redforge.runtime.pipeline_state import PipelineStateKey
 from redforge.sdk.context import Context
 
-context = Context(
-    target_id="example.com",
-    state={PipelineStateKey.KNOWLEDGE_GRAPH: KnowledgeGraph()},
+# `dependencies` is supplied by the application with authorized providers,
+# or with deterministic fakes in tests.
+definitions = create_default_registry()
+factories = create_default_factory_registry(dependencies=dependencies)
+planner = ExecutionPlanner(definitions)
+builder = PipelineBuilder(
+    descriptor_registry=definitions,
+    factory_registry=factories,
 )
-execution = create_default_planned_execution()
+execution = PlannedExecution(planner=planner, builder=builder)
+
+context = Context(target_id="example.com")  # documentation-only target
 plan = execution.plan(
     goals=(PipelineStateKey.RISK_INTELLIGENCE,),
     context=context,
 )
-result = execution.execute(plan=plan, context=context)
+pipeline = execution.build(plan)
+result = pipeline.run(context)
 
-assert plan.required_capabilities == ("risk_intelligence",)
-assert result.executed_capabilities == ("risk_intelligence",)
+final_risk = result.context.get(PipelineStateKey.RISK_INTELLIGENCE)
+history = result.executions
 ```
 
 Construction performs no external I/O. Inject `CapabilityDependencies` with
-fake typed ports for deterministic tests.
+authorized typed providers for real runs or fake typed ports for deterministic
+tests. RedForge does not install external tools automatically. See the
+[End-to-End Pipeline](docs/end-to-end-pipeline.md) for the complete state graph,
+empty-result behavior, and failure boundaries.
 
 ## Capability Registry
 

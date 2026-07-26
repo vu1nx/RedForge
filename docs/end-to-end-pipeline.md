@@ -1,0 +1,122 @@
+# End-to-End Pipeline
+
+RedForge's current library runtime can plan, construct, and execute every
+implemented capability from one target context to immutable risk read models:
+
+```text
+Context.target_id
+        |
+subdomain_discovery -> SUBDOMAINS
+        |
+host_resolution -> HOSTS
+        |
+http_probe -> ALIVE_HOSTS + HTTP_ENDPOINTS
+        |
+web_crawl -> ENDPOINTS
+        |
+technology_detection -> TECHNOLOGIES
+        |
+asset_intelligence -> ASSET_INTELLIGENCE
+        |
+vulnerability_intelligence -> VULNERABILITY_INTELLIGENCE
+        |
+knowledge_graph -> KNOWLEDGE_GRAPH
+        |
+risk_intelligence -> RISK_INTELLIGENCE
+```
+
+`Context.target_id` is the single initial target contract. It is not invented
+by the planner or builder and is not an executable argument model. Applications
+are responsible for authorization before execution; provider adapters perform
+their established scope and input validation.
+
+Execution planning is capability- and state-driven.
+
+External tool identities do not appear in execution plans.
+
+## Composition and closure
+
+`CapabilityRegistry` holds immutable definitions only.
+`CapabilityFactoryRegistry` holds one lazy factory for each of the nine default
+capability IDs. `ExecutionPlanner` expands a requested state through unique
+producers, and `PipelineBuilder` creates one fresh capability for each plan
+step. `PlannedExecution` delegates the resulting pipeline to the existing
+sequential runtime.
+
+Asset Intelligence explicitly requires the subdomain, host, responsive-host,
+crawler-endpoint, and technology states it correlates. These inputs share the
+same reconnaissance closure and do not cause duplicate capability execution.
+
+Requesting `RISK_INTELLIGENCE` from an empty state produces this deterministic
+closure:
+
+```text
+subdomain_discovery
+host_resolution
+http_probe
+web_crawl
+technology_detection
+asset_intelligence
+vulnerability_intelligence
+knowledge_graph
+risk_intelligence
+```
+
+The default tool registry independently contains `subfinder`, `httpx`,
+`katana`, and `whatweb`. Those identities select replaceable adapters; they are
+not capabilities. Registry, factory, planner, and builder construction performs
+no process execution, availability probe, or network access.
+
+## State contracts
+
+The canonical runtime values are:
+
+| State | Producer | Immutable value |
+| --- | --- | --- |
+| `SUBDOMAINS` | `subdomain_discovery` | `SubdomainDiscoveryResult` with tuple findings |
+| `HOSTS` | `host_resolution` | `HostResolution` |
+| `ALIVE_HOSTS` | `http_probe` | tuple of `Host` |
+| `HTTP_ENDPOINTS` | `http_probe` | tuple of `HttpProbeEndpoint` |
+| `ENDPOINTS` | `web_crawl` | tuple of `Endpoint` |
+| `TECHNOLOGIES` | `technology_detection` | tuple of `Technology` |
+| `ASSET_INTELLIGENCE` | `asset_intelligence` | `AssetIntelligence` |
+| `VULNERABILITY_INTELLIGENCE` | `vulnerability_intelligence` | `VulnerabilityIntelligence` |
+| `KNOWLEDGE_GRAPH` | `knowledge_graph` | `KnowledgeGraph` |
+| `RISK_INTELLIGENCE` | `risk_intelligence` | `RiskIntelligence` |
+
+Every value is validated before publication. `http_probe` is one plan step,
+one provider call, and one history entry even though it provides two states.
+Both values are validated before either is committed to Context.
+
+## Runtime outcomes
+
+Runtime precedence is:
+
+```text
+ERROR > FAILURE > PARTIAL > SUCCESS
+```
+
+`SUCCESS` publishes and continues. `PARTIAL` publishes usable evidence,
+continues, and remains visible in the aggregate result. `FAILURE` and `ERROR`
+publish nothing for the failing capability and stop the remaining plan.
+History is an immutable ordered tuple with one typed `CapabilityId` entry per
+attempted capability; skipped steps create no entries.
+
+A clean empty subdomain result still runs the structural plan, but every later
+external provider is skipped because it has no input work. The runtime
+publishes canonical empty host, endpoint, technology, vulnerability, graph, and
+risk values and returns `SUCCESS`. This is a deterministic no-findings result,
+not an infrastructure failure.
+
+## Deterministic testing and current boundary
+
+The complete test composition injects in-memory providers for subdomains, DNS,
+HTTP probing, crawling, technology detection, and vulnerability data. It uses
+the production registry, planner, builder, facade, runtime, and intelligence
+capabilities, and produces a deterministic risk assessment without network,
+subprocess, external binaries, credentials, or live targets.
+
+RedForge remains a library runtime. Target authorization, CLI behavior,
+configuration loading, orchestration, persistence, retries, parallel
+execution, dynamic replanning, and report export are intentionally outside this
+milestone.

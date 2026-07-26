@@ -20,6 +20,13 @@ DEFAULT_CAPABILITY_DEFINITIONS = (
         display_name="Asset Intelligence",
         description="Builds normalized asset records from available observations.",
         version="1.0",
+        requires=(
+            PipelineStateKey.SUBDOMAINS,
+            PipelineStateKey.HOSTS,
+            PipelineStateKey.ALIVE_HOSTS,
+            PipelineStateKey.ENDPOINTS,
+            PipelineStateKey.TECHNOLOGIES,
+        ),
         provides=(PipelineStateKey.ASSET_INTELLIGENCE,),
         tags=("analysis", "intelligence"),
     ),

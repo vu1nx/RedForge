@@ -24,6 +24,7 @@ from redforge.sdk import (
     ToolInvocation,
     ToolRunner,
 )
+from redforge.sdk.subdomain_discovery import SubdomainDiscoveryResult
 from redforge.testing import FakeToolRunner
 
 
@@ -79,7 +80,10 @@ class FakeToolDiscoveryCapability(Capability):
             status=Status.SUCCESS,
             data=None,
             publications=(
-                StatePublication(PipelineStateKey.SUBDOMAINS, hostnames),
+                StatePublication(
+                    PipelineStateKey.SUBDOMAINS,
+                    SubdomainDiscoveryResult(hostnames=hostnames),
+                ),
             ),
         )
 
@@ -146,8 +150,9 @@ def test_fake_tool_output_flows_through_planned_atomic_publication() -> None:
 
     assert result.status is Status.SUCCESS
     assert result.context.get(PipelineStateKey.SUBDOMAINS) == (
-        "a.example.com",
-        "b.example.com",
+        SubdomainDiscoveryResult(
+            hostnames=("a.example.com", "b.example.com")
+        )
     )
     assert len(result.executions) == 1
     assert result.executions[0].capability_id == CapabilityId(

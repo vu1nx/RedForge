@@ -6,7 +6,7 @@ from redforge.adapters.katana import WebCrawlAdapterResult
 from redforge.adapters.subfinder import SubdomainDiscoveryResult
 from redforge.adapters.technology_detection import TechnologyDetectionResult
 from redforge.domain.endpoint import Endpoint
-from redforge.domain.host import Host
+from redforge.domain.host import Host, HostResolution
 from redforge.domain.http_probe import HttpProbeEndpoint
 from redforge.domain.knowledge_graph import KnowledgeGraph
 from redforge.domain.risk_intelligence import RiskIntelligence
@@ -34,6 +34,13 @@ class FakeResolver:
 
     def resolve(self, hostname: str) -> tuple[str, ...]:  # noqa: ARG002
         return ("192.0.2.10",)
+
+
+class FakeSubdomainProvider:
+    """Return one deterministic name without invoking a binary."""
+
+    def discover(self, domain: str) -> SubdomainDiscoveryResult:  # noqa: ARG002
+        return SubdomainDiscoveryResult(hostnames=("app.example.com",))
 
 
 class FakeHttpTransport:
@@ -136,8 +143,14 @@ class PlannedMultiOutputCapability(Capability):
             status=Status.SUCCESS,
             data=None,
             publications=(
-                StatePublication(PipelineStateKey.HOSTS, ("host",)),
-                StatePublication(PipelineStateKey.SUBDOMAINS, ("a.example",)),
+                StatePublication(
+                    PipelineStateKey.HOSTS,
+                    HostResolution(hosts=(Host(hostname="a.example"),)),
+                ),
+                StatePublication(
+                    PipelineStateKey.SUBDOMAINS,
+                    SubdomainDiscoveryResult(hostnames=("a.example",)),
+                ),
             ),
         )
 
@@ -145,6 +158,7 @@ class PlannedMultiOutputCapability(Capability):
 def _default_execution() -> PlannedExecution:
     return create_default_planned_execution(
         dependencies=CapabilityDependencies(
+            subdomain_provider=FakeSubdomainProvider(),
             host_resolver=FakeResolver(),
             http_transport=FakeHttpTransport(),
             web_crawler=FakeCrawler(),
@@ -279,6 +293,11 @@ def test_risk_from_existing_graph_executes_only_risk_capability() -> None:
 
 def test_full_risk_path_is_deterministic_and_has_no_external_io() -> None:
     expected = (
+        "subdomain_discovery",
+        "host_resolution",
+        "http_probe",
+        "web_crawl",
+        "technology_detection",
         "asset_intelligence",
         "vulnerability_intelligence",
         "knowledge_graph",
@@ -304,12 +323,16 @@ def test_full_risk_path_is_deterministic_and_has_no_external_io() -> None:
 
 def test_partial_publishes_data_continues_and_remains_aggregate() -> None:
     calls: list[str] = []
+    partial_data = SubdomainDiscoveryResult(hostnames=("partial.example",))
     partial = Result(
         status=Status.PARTIAL,
-        data=("partial",),
+        data=partial_data,
         errors=["one item failed"],
     )
-    success_b = Result(status=Status.SUCCESS, data=("host",))
+    success_b = Result(
+        status=Status.SUCCESS,
+        data=HostResolution(hosts=(Host(hostname="host.example"),)),
+    )
     success_c = Result(
         status=Status.SUCCESS,
         data=(Host(hostname="alive.example.com"),),
@@ -329,12 +352,15 @@ def test_partial_publishes_data_continues_and_remains_aggregate() -> None:
     assert result.status == Status.PARTIAL
     assert result.last_result is success_c
     assert result.executions[0].result is partial
-    assert result.context.state[PipelineStateKey.SUBDOMAINS] == ("partial",)
+    assert result.context.state[PipelineStateKey.SUBDOMAINS] == partial_data
 
 
 def test_failure_stops_and_preserves_initial_and_earlier_state() -> None:
     calls: list[str] = []
-    success = Result(status=Status.SUCCESS, data=("subdomain",))
+    success = Result(
+        status=Status.SUCCESS,
+        data=SubdomainDiscoveryResult(hostnames=("subdomain.example",)),
+    )
     failure = Result(status=Status.FAILURE, data=("not-published",))
     skipped = Result(
         status=Status.SUCCESS,
@@ -362,7 +388,10 @@ def test_failure_stops_and_preserves_initial_and_earlier_state() -> None:
 
 def test_error_stops_without_publishing_and_leaves_plan_unchanged() -> None:
     calls: list[str] = []
-    success = Result(status=Status.SUCCESS, data=("subdomain",))
+    success = Result(
+        status=Status.SUCCESS,
+        data=SubdomainDiscoveryResult(hostnames=("subdomain.example",)),
+    )
     error = Result(
         status=Status.ERROR,
         data=("not-published",),
@@ -470,8 +499,12 @@ def test_planned_execution_publishes_multiple_goals_from_one_step() -> None:
     assert plan == original_plan
     assert calls == ["multi"]
     assert result.status == Status.SUCCESS
-    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
-    assert result.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
+    assert isinstance(
+        result.context.get(PipelineStateKey.HOSTS), HostResolution
+    )
+    assert result.context.get(PipelineStateKey.SUBDOMAINS) == (
+        SubdomainDiscoveryResult(hostnames=("a.example",))
+    )
     assert len(result.executions) == 1
     assert result.executions[0].capability_id == CapabilityId("multi")
 
@@ -508,7 +541,10 @@ def test_custom_multi_output_definition_fans_out_without_legacy_fallback() -> No
         CapabilityId("host_consumer"),
         lambda: ResultCapability(
             "host_consumer",
-            Result(status=Status.SUCCESS, data=("endpoint",)),
+                Result(
+                    status=Status.SUCCESS,
+                    data=(Endpoint("host.example", 443, "https", "/"),),
+                ),
             calls,
         ),
     )
@@ -550,9 +586,15 @@ def test_custom_multi_output_definition_fans_out_without_legacy_fallback() -> No
         CapabilityId("subdomain_consumer"),
     )
     assert result.status == Status.SUCCESS
-    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
-    assert result.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
-    assert result.context.get(PipelineStateKey.ENDPOINTS) == ("endpoint",)
+    assert isinstance(
+        result.context.get(PipelineStateKey.HOSTS), HostResolution
+    )
+    assert result.context.get(PipelineStateKey.SUBDOMAINS) == (
+        SubdomainDiscoveryResult(hostnames=("a.example",))
+    )
+    assert result.context.get(PipelineStateKey.ENDPOINTS) == (
+        Endpoint("host.example", 443, "https", "/"),
+    )
     assert result.context.get(PipelineStateKey.ALIVE_HOSTS) == (
         Host(hostname="alive.example.com"),
     )

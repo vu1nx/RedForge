@@ -7,7 +7,7 @@ import pytest  # type: ignore[reportMissingImports]
 
 import redforge.sdk as public_sdk
 from redforge.domain import HttpProbeEndpoint as PublicHttpProbeEndpoint
-from redforge.domain.host import Host
+from redforge.domain.host import Host, HostResolution
 from redforge.domain.http_probe import HttpProbeEndpoint
 from redforge.sdk.context import Context
 from redforge.sdk.http_probe import HttpProbeProviderResult
@@ -25,6 +25,14 @@ def test_http_endpoints_state_key_is_public_stable_and_distinct() -> None:
     assert str(PipelineStateKey.HTTP_ENDPOINTS) == "http_endpoints"
     assert public_sdk.HttpProbeEndpoint is HttpProbeEndpoint
     assert PublicHttpProbeEndpoint is HttpProbeEndpoint
+
+
+@pytest.mark.parametrize("target_id", ("", "   ", "example.com\n--flag", "\x00"))
+def test_context_rejects_empty_or_control_character_targets(
+    target_id: str,
+) -> None:
+    with pytest.raises(ValueError, match="target identifier"):
+        Context(target_id=target_id)
 
 
 def test_state_publication_is_typed_immutable_slotted_and_equal() -> None:
@@ -62,16 +70,20 @@ def test_context_publish_many_empty_one_and_multiple() -> None:
     context.publish_many(())
     assert context.available_state_keys() == ()
 
-    context.publish(StatePublication(PipelineStateKey.HOSTS, ("host",)))
+    hosts = HostResolution(hosts=(Host(hostname="host.example"),))
+    subdomains = public_sdk.SubdomainDiscoveryResult(
+        hostnames=("a.example",)
+    )
+    context.publish(StatePublication(PipelineStateKey.HOSTS, hosts))
     context.publish_many(
         (
-            StatePublication(PipelineStateKey.SUBDOMAINS, ("a.example",)),
+            StatePublication(PipelineStateKey.SUBDOMAINS, subdomains),
             StatePublication(PipelineStateKey.ALIVE_HOSTS, ()),
         )
     )
 
     assert context.has(PipelineStateKey.HOSTS)
-    assert context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert context.get(PipelineStateKey.HOSTS) == hosts
     assert context.available_state_keys() == (
         PipelineStateKey.ALIVE_HOSTS,
         PipelineStateKey.HOSTS,
@@ -82,12 +94,15 @@ def test_context_publish_many_empty_one_and_multiple() -> None:
 def test_context_batch_replaces_existing_values() -> None:
     context = Context(
         target_id="example.com",
-        state={PipelineStateKey.HOSTS: ("old",)},
+        state={PipelineStateKey.HOSTS: HostResolution()},
     )
 
-    context.publish_many((StatePublication(PipelineStateKey.HOSTS, ("new",)),))
+    replacement = HostResolution(hosts=(Host(hostname="new.example"),))
+    context.publish_many(
+        (StatePublication(PipelineStateKey.HOSTS, replacement),)
+    )
 
-    assert context.get(PipelineStateKey.HOSTS) == ("new",)
+    assert context.get(PipelineStateKey.HOSTS) == replacement
 
 
 def test_context_batch_duplicate_is_atomic() -> None:
@@ -111,7 +126,7 @@ def test_context_batch_duplicate_is_atomic() -> None:
 
 def test_context_invalid_batch_is_atomic_and_preserves_input() -> None:
     context = Context(target_id="example.com")
-    publication = StatePublication(PipelineStateKey.HOSTS, ("host",))
+    publication = StatePublication(PipelineStateKey.HOSTS, HostResolution())
     supplied = [publication]
 
     context.publish_many(supplied)
@@ -191,3 +206,27 @@ def test_typed_multi_output_validation_is_atomic() -> None:
             )
         )
     assert context.state == original
+
+
+@pytest.mark.parametrize("key", tuple(PipelineStateKey))
+def test_every_canonical_state_rejects_an_invalid_published_type(
+    key: PipelineStateKey,
+) -> None:
+    with pytest.raises(TypeError, match=key.value):
+        Context(target_id="example.com").publish(
+            StatePublication(key, object())
+        )
+
+
+def test_replacing_state_does_not_mutate_previously_published_value() -> None:
+    context = Context(target_id="example.com")
+    first = HostResolution(hosts=(Host(hostname="first.example"),))
+    second = HostResolution(hosts=(Host(hostname="second.example"),))
+
+    context.publish(StatePublication(PipelineStateKey.HOSTS, first))
+    retained_snapshot = context.get(PipelineStateKey.HOSTS)
+    context.publish(StatePublication(PipelineStateKey.HOSTS, second))
+
+    assert retained_snapshot is first
+    assert retained_snapshot.hosts == (Host(hostname="first.example"),)
+    assert context.get(PipelineStateKey.HOSTS) is second

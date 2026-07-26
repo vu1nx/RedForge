@@ -41,6 +41,12 @@ explicit/legacy output become sanitized `ERROR` results without changing
 Context. One capability execution still creates one history entry regardless
 of publication count. See [State Publication](state-publication.md).
 
+Every canonical state key has a runtime type validator. Published collection
+states are tuples of immutable domain models; aggregate states use their frozen,
+slotted read models. Validation of a multi-output batch completes before the
+Context mapping changes, so downstream capabilities cannot observe half of an
+HTTP probe publication.
+
 ## Defensive boundary
 
 Unexpected capability exceptions are converted to sanitized `ERROR` results.
@@ -120,3 +126,9 @@ result without evidence becomes failure; failure, unavailable execution, and
 operational error publish nothing. One WhatWeb batch invocation remains one
 `technology_detection` execution-history entry. See
 [WhatWeb Technology Detection Integration](technology-detection-integration.md).
+
+Across the complete default chain, clean empty input is successful work with no
+findings. Host resolution and the HTTP, crawl, and technology capabilities
+publish canonical empty values without invoking their providers when their
+inputs are empty. Intelligence capabilities then produce deterministic empty
+read models. See [End-to-End Pipeline](end-to-end-pipeline.md).

@@ -11,7 +11,8 @@ from redforge.adapters.subfinder import SubdomainDiscoveryResult
 from redforge.capabilities.host_resolution import HostResolutionCapability
 from redforge.capabilities.risk_intelligence import RiskIntelligenceCapability
 from redforge.domain.asset import Asset
-from redforge.domain.host import HostResolution
+from redforge.domain.asset_intelligence import AssetIntelligence
+from redforge.domain.host import Host, HostResolution
 from redforge.domain.knowledge_graph import (
     KnowledgeGraph,
     KnowledgeGraphEdge,
@@ -22,6 +23,7 @@ from redforge.domain.knowledge_graph import (
 from redforge.domain.risk_intelligence import RiskIntelligence
 from redforge.domain.target import Target
 from redforge.domain.technology import Technology
+from redforge.domain.vulnerability_intelligence import VulnerabilityIntelligence
 from redforge.runtime.pipeline import (
     CapabilityExecution,
     Pipeline,
@@ -306,11 +308,17 @@ def test_known_capability_output_mappings_continue_to_work() -> None:
             SubdomainDiscoveryResult(hostnames=("a.example.com",)),
         ),
         "host_resolution": (PipelineStateKey.HOSTS, HostResolution()),
-        "technology_detection": (PipelineStateKey.TECHNOLOGIES, ["nginx"]),
-        "asset_intelligence": (PipelineStateKey.ASSET_INTELLIGENCE, {"assets": []}),
+        "technology_detection": (
+            PipelineStateKey.TECHNOLOGIES,
+            (Technology("nginx", "web-server"),),
+        ),
+        "asset_intelligence": (
+            PipelineStateKey.ASSET_INTELLIGENCE,
+            AssetIntelligence(),
+        ),
         "vulnerability_intelligence": (
             PipelineStateKey.VULNERABILITY_INTELLIGENCE,
-            {"vulnerabilities": []},
+            VulnerabilityIntelligence(),
         ),
         "knowledge_graph": (PipelineStateKey.KNOWLEDGE_GRAPH, KnowledgeGraph()),
         "risk_intelligence": (
@@ -506,8 +514,14 @@ def test_explicit_multi_output_is_atomic_and_executes_downstream_once(
         status=status,
         data=None,
         publications=(
-            StatePublication(PipelineStateKey.SUBDOMAINS, ("a.example",)),
-            StatePublication(PipelineStateKey.HOSTS, ("host",)),
+            StatePublication(
+                PipelineStateKey.SUBDOMAINS,
+                SubdomainDiscoveryResult(hostnames=("a.example",)),
+            ),
+            StatePublication(
+                PipelineStateKey.HOSTS,
+                HostResolution(hosts=(Host(hostname="host.example"),)),
+            ),
         ),
     )
     pipeline = Pipeline(
@@ -531,8 +545,12 @@ def test_explicit_multi_output_is_atomic_and_executes_downstream_once(
     result = pipeline.run("example.com")
 
     assert result.status == status
-    assert result.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
-    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert result.context.get(PipelineStateKey.SUBDOMAINS) == (
+        SubdomainDiscoveryResult(hostnames=("a.example",))
+    )
+    assert result.context.get(PipelineStateKey.HOSTS) == HostResolution(
+        hosts=(Host(hostname="host.example"),)
+    )
     assert calls == ["needs_subdomains", "needs_hosts"]
     assert result.executed_capabilities == (
         "multi",
@@ -561,8 +579,13 @@ def test_partial_explicit_subset_does_not_create_missing_state() -> None:
                 status=Status.PARTIAL,
                 data=None,
                 publications=(
-                    StatePublication(PipelineStateKey.HOSTS, ()),
-                    StatePublication(PipelineStateKey.SUBDOMAINS, ()),
+                    StatePublication(
+                        PipelineStateKey.HOSTS, HostResolution()
+                    ),
+                    StatePublication(
+                        PipelineStateKey.SUBDOMAINS,
+                        SubdomainDiscoveryResult(),
+                    ),
                 ),
             ),
         )
@@ -592,7 +615,14 @@ def test_downstream_missing_subset_prerequisite_uses_normal_failure_policy() -> 
             Result[None](
                 status=Status.PARTIAL,
                 data=None,
-                publications=(StatePublication(PipelineStateKey.HOSTS, ("host",)),),
+                publications=(
+                    StatePublication(
+                        PipelineStateKey.HOSTS,
+                        HostResolution(
+                            hosts=(Host(hostname="host.example"),)
+                        ),
+                    ),
+                ),
             ),
         )
     )
@@ -755,14 +785,14 @@ def test_legacy_output_keys_constructor_remains_supported() -> None:
     pipeline.add(
         MockCapability(
             "legacy",
-            Result(status=Status.SUCCESS, data=("host",)),
+            Result(status=Status.SUCCESS, data=HostResolution()),
         )
     )
 
     result = pipeline.run("example.com")
 
     assert result.status == Status.SUCCESS
-    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert result.context.get(PipelineStateKey.HOSTS) == HostResolution()
 
 
 def test_explicit_single_output_works_and_conflicting_data_fails() -> None:
@@ -773,11 +803,19 @@ def test_explicit_single_output_works_and_conflicting_data_fails() -> None:
             Result[None](
                 status=Status.SUCCESS,
                 data=None,
-                publications=(StatePublication(PipelineStateKey.HOSTS, ("host",)),),
+                publications=(
+                    StatePublication(
+                        PipelineStateKey.HOSTS,
+                        HostResolution(),
+                    ),
+                ),
             ),
         )
     )
-    assert explicit.run("example.com").context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert (
+        explicit.run("example.com").context.get(PipelineStateKey.HOSTS)
+        == HostResolution()
+    )
 
     conflict = Pipeline(output_contracts={"conflict": (PipelineStateKey.HOSTS,)})
     conflict.add(
@@ -802,7 +840,7 @@ def test_explicit_typed_manual_contract_bypasses_name_fallback() -> None:
     pipeline.add(
         MockCapability(
             identity.value,
-            Result(status=Status.SUCCESS, data=("host",)),
+            Result(status=Status.SUCCESS, data=HostResolution()),
         ),
         capability_id=identity,
         provides=(PipelineStateKey.HOSTS,),
@@ -810,7 +848,7 @@ def test_explicit_typed_manual_contract_bypasses_name_fallback() -> None:
 
     result = pipeline.run("example.com")
 
-    assert result.context.get(PipelineStateKey.HOSTS) == ("host",)
+    assert result.context.get(PipelineStateKey.HOSTS) == HostResolution()
     assert identity.value not in result.context.state
     assert result.executions[0].capability_id == identity
 

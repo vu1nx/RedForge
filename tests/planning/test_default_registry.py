@@ -1,5 +1,7 @@
 """Tests for real RedForge planning declarations."""
 
+import pytest  # type: ignore[reportMissingImports]
+
 from redforge.planning import (
     BUILTIN_CAPABILITY_IDS,
     CapabilityId,
@@ -46,6 +48,11 @@ def test_risk_from_available_graph_requires_only_risk_intelligence() -> None:
 
 def test_full_risk_contract_uses_minimum_current_required_state_closure() -> None:
     assert _plan(PipelineStateKey.RISK_INTELLIGENCE) == (
+        "subdomain_discovery",
+        "host_resolution",
+        "http_probe",
+        "web_crawl",
+        "technology_detection",
         "asset_intelligence",
         "vulnerability_intelligence",
         "knowledge_graph",
@@ -67,6 +74,13 @@ def test_default_definitions_have_complete_stable_metadata() -> None:
     )
     assert registry.require(CapabilityId("web_crawl")).requires == (
         PipelineStateKey.ALIVE_HOSTS,
+    )
+    assert registry.require(CapabilityId("asset_intelligence")).requires == (
+        PipelineStateKey.ALIVE_HOSTS,
+        PipelineStateKey.ENDPOINTS,
+        PipelineStateKey.HOSTS,
+        PipelineStateKey.SUBDOMAINS,
+        PipelineStateKey.TECHNOLOGIES,
     )
 
 
@@ -90,3 +104,51 @@ def test_http_probe_is_the_single_producer_for_both_probe_outputs() -> None:
         available_state=(PipelineStateKey.HOSTS,),
     )
     assert plan.required_capabilities == ("http_probe",)
+
+
+@pytest.mark.parametrize(
+    ("goal", "expected_last"),
+    (
+        (PipelineStateKey.SUBDOMAINS, "subdomain_discovery"),
+        (PipelineStateKey.HOSTS, "host_resolution"),
+        (PipelineStateKey.ALIVE_HOSTS, "http_probe"),
+        (PipelineStateKey.HTTP_ENDPOINTS, "http_probe"),
+        (PipelineStateKey.ENDPOINTS, "web_crawl"),
+        (PipelineStateKey.TECHNOLOGIES, "technology_detection"),
+        (PipelineStateKey.ASSET_INTELLIGENCE, "asset_intelligence"),
+        (
+            PipelineStateKey.VULNERABILITY_INTELLIGENCE,
+            "vulnerability_intelligence",
+        ),
+        (PipelineStateKey.KNOWLEDGE_GRAPH, "knowledge_graph"),
+        (PipelineStateKey.RISK_INTELLIGENCE, "risk_intelligence"),
+    ),
+)
+def test_every_canonical_goal_has_a_deterministic_dependency_closure(
+    goal: PipelineStateKey,
+    expected_last: str,
+) -> None:
+    plan = ExecutionPlanner(create_default_registry()).plan(goals=(goal,))
+
+    assert plan.required_capabilities[-1] == expected_last
+    assert len(plan.required_capability_ids) == len(
+        set(plan.required_capability_ids)
+    )
+
+
+def test_complete_final_state_set_reuses_each_capability_once() -> None:
+    plan = ExecutionPlanner(create_default_registry()).plan(
+        goals=tuple(PipelineStateKey)
+    )
+
+    assert plan.required_capabilities == (
+        "subdomain_discovery",
+        "host_resolution",
+        "http_probe",
+        "web_crawl",
+        "technology_detection",
+        "asset_intelligence",
+        "vulnerability_intelligence",
+        "knowledge_graph",
+        "risk_intelligence",
+    )

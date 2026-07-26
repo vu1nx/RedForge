@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest  # type: ignore[reportMissingImports]
 
-from redforge.domain.host import Host
+from redforge.domain.host import Host, HostResolution
 from redforge.planning import (
     CapabilityDefinition,
     CapabilityDescriptor,
@@ -27,6 +27,7 @@ from redforge.runtime.pipeline_state import (
 from redforge.sdk.capability import Capability
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, StatePublication, Status
+from redforge.sdk.subdomain_discovery import SubdomainDiscoveryResult
 
 
 class FakeCapability(Capability):
@@ -69,8 +70,14 @@ class MultiOutputCapability(Capability):
             status=Status.SUCCESS,
             data=None,
             publications=(
-                StatePublication(PipelineStateKey.HOSTS, ("host",)),
-                StatePublication(PipelineStateKey.SUBDOMAINS, ("a.example",)),
+                StatePublication(
+                    PipelineStateKey.HOSTS,
+                    HostResolution(hosts=(Host(hostname="a.example"),)),
+                ),
+                StatePublication(
+                    PipelineStateKey.SUBDOMAINS,
+                    SubdomainDiscoveryResult(hostnames=("a.example",)),
+                ),
             ),
         )
 
@@ -211,8 +218,14 @@ def test_custom_chain_plans_builds_and_executes_in_order() -> None:
     calls: list[str] = []
     factories = CapabilityFactoryRegistry()
     for name, data in (
-        ("a", ("a.example",)),
-        ("b", ("host",)),
+        (
+            "a",
+            SubdomainDiscoveryResult(hostnames=("a.example",)),
+        ),
+        (
+            "b",
+            HostResolution(hosts=(Host(hostname="host.example"),)),
+        ),
         ("c", (Host(hostname="alive.example.com"),)),
     ):
         factories.register(
@@ -229,8 +242,12 @@ def test_custom_chain_plans_builds_and_executes_in_order() -> None:
     assert calls == ["a", "b", "c"]
     assert result.executed_capabilities == ("a", "b", "c")
     assert result.status == Status.SUCCESS
-    assert result.context.state[PipelineStateKey.SUBDOMAINS] == ("a.example",)
-    assert result.context.state[PipelineStateKey.HOSTS] == ("host",)
+    assert result.context.state[PipelineStateKey.SUBDOMAINS] == (
+        SubdomainDiscoveryResult(hostnames=("a.example",))
+    )
+    assert result.context.state[PipelineStateKey.HOSTS] == HostResolution(
+        hosts=(Host(hostname="host.example"),)
+    )
     assert result.context.state[PipelineStateKey.ALIVE_HOSTS] == (
         Host(hostname="alive.example.com"),
     )
@@ -368,8 +385,12 @@ def test_builder_accepts_multi_output_descriptor_and_builds_fresh_instances() ->
     assert instances[0] is not instances[1]
     assert instances[0].execute_calls == instances[1].execute_calls == 1
     assert first.executed_capabilities == second.executed_capabilities == ("multi",)
-    assert first.context.get(PipelineStateKey.HOSTS) == ("host",)
-    assert first.context.get(PipelineStateKey.SUBDOMAINS) == ("a.example",)
+    assert isinstance(
+        first.context.get(PipelineStateKey.HOSTS), HostResolution
+    )
+    assert first.context.get(PipelineStateKey.SUBDOMAINS) == (
+        SubdomainDiscoveryResult(hostnames=("a.example",))
+    )
     assert first.executions[0].capability_id == CapabilityId("multi")
 
 

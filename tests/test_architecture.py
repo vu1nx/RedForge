@@ -651,3 +651,31 @@ def test_httpx_adapter_has_no_unsafe_or_expansive_probe_flags() -> None:
         '"-ports"',
     ):
         assert forbidden_argument not in source
+
+
+def test_default_capability_graph_has_complete_factory_and_producer_coverage() -> None:
+    from redforge.planning import (
+        create_default_factory_registry,
+        create_default_registry,
+    )
+    from redforge.sdk import PipelineStateKey
+
+    definitions = create_default_registry()
+    factories = create_default_factory_registry()
+
+    assert definitions.ids() == factories.ids
+    assert all(
+        len(definitions.producers_for(key)) == 1 for key in PipelineStateKey
+    )
+
+
+def test_default_capability_and_tool_identities_are_disjoint() -> None:
+    from redforge.adapters import create_default_tool_registry
+    from redforge.planning import create_default_registry
+
+    capability_values = {item.value for item in create_default_registry().ids()}
+    tool_values = {
+        item.value for item in create_default_tool_registry().ids()
+    }
+
+    assert capability_values.isdisjoint(tool_values)

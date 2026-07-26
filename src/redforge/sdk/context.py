@@ -28,6 +28,15 @@ class Context:
     metadata: dict[str, Any] = field(default_factory=dict)  # type: ignore[reportUnknownVariableType]
     """Additional metadata about the execution context."""
 
+    def __post_init__(self) -> None:
+        target = cast(object, self.target_id)
+        if (
+            not isinstance(target, str)
+            or not target.strip()
+            or any(ord(character) < 32 or ord(character) == 127 for character in target)
+        ):
+            raise ValueError("target identifier is invalid")
+
     def available_state_keys(self) -> tuple[str, ...]:
         """Return state keys that are present, independently of value truthiness."""
         return tuple(sorted(self.state))

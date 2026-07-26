@@ -159,3 +159,11 @@ plan. The registry contract remains
 configuration, and executable availability remain outside capability
 definitions. See
 [WhatWeb Technology Detection Integration](technology-detection-integration.md).
+
+The final default closure continues from
+`TECHNOLOGIES -> asset_intelligence -> ASSET_INTELLIGENCE`, then through
+vulnerability intelligence, the knowledge graph, and risk intelligence. Every
+canonical state has exactly one default producer, and every default definition
+has one lazy factory. Completeness and producer uniqueness are derived from the
+registries in tests rather than maintained as another runtime mapping. See
+[End-to-End Pipeline](end-to-end-pipeline.md).

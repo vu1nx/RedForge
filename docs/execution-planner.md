@@ -98,9 +98,10 @@ a planned step. Runtime [state publication](state-publication.md) validates the
 actual explicit subset. It does not dynamically change or re-plan the immutable
 plan when a capability publishes fewer keys.
 
-Capabilities may consume useful context state beyond their declared required
-inputs. Asset Intelligence currently does this for optional enrichment state.
-Optional state does not trigger producer insertion.
+Asset Intelligence explicitly declares every reconnaissance state it consumes:
+`SUBDOMAINS`, `HOSTS`, `ALIVE_HOSTS`, `ENDPOINTS`, and `TECHNOLOGIES`.
+Those requirements pull the same complete reconnaissance chain into plans for
+final intelligence without relying on undocumented Context inputs.
 
 ## Default graph
 
@@ -111,8 +112,7 @@ HOSTS -> http_probe -> ALIVE_HOSTS
                   `-> HTTP_ENDPOINTS
 ALIVE_HOSTS -> web_crawl -> ENDPOINTS
 ENDPOINTS -> technology_detection -> TECHNOLOGIES
-
-asset_intelligence -> ASSET_INTELLIGENCE
+TECHNOLOGIES -> asset_intelligence -> ASSET_INTELLIGENCE
 ASSET_INTELLIGENCE -> vulnerability_intelligence
     -> VULNERABILITY_INTELLIGENCE
 ASSET_INTELLIGENCE + VULNERABILITY_INTELLIGENCE
@@ -139,6 +139,10 @@ availability or start a process.
 planner, factory registry, builder, and facade. Tests can supply
 `CapabilityDependencies` with fake ports; no live network, DNS, or external
 binary is needed.
+
+Execution planning is capability- and state-driven. External tool identities
+do not appear in execution plans. See [End-to-End Pipeline](end-to-end-pipeline.md)
+for the full closure and runtime-readiness contract.
 
 Execution is sequential. Parallel branches, retries, fallback providers,
 dynamic replanning, optional dependency syntax, persistence, and resume are

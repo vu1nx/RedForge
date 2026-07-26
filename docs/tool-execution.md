@@ -182,6 +182,16 @@ host scope, and returns typed crawler endpoints. `WebCrawlCapability` imports
 only the tool-agnostic SDK provider contract. See
 [Katana Web Crawl Integration](katana-integration.md).
 
+WhatWeb technology detection follows the same boundary.
+`WhatWebTechnologyDetectionProvider` creates one bounded batch invocation,
+parses machine-readable JSON, associates every record with an exact requested
+`Endpoint`, and returns provider-neutral `Technology` evidence.
+`TechnologyDetectionCapability` imports only the SDK provider contract. The
+official WhatWeb CLI writes JSON to a named file, so the adapter owns one
+private temporary result file; targets remain individual argv elements and the
+generic runner still owns process execution. See
+[WhatWeb Technology Detection Integration](technology-detection-integration.md).
+
 ## Deterministic testing
 
 `FakeToolRunner` queues immutable `ToolExecutionResult` values by `ToolId` and
@@ -196,3 +206,5 @@ Subfinder unit and planned-execution tests use `FakeToolRunner`; ordinary test
 runs therefore require neither a Subfinder binary nor network access.
 HTTPX tests use the same fake boundary and likewise require no installed
 binary, network, credentials, target files, or platform shell.
+Katana and WhatWeb tests also use `FakeToolRunner`; they require no external
+executables, network access, credentials, or authorized live targets.

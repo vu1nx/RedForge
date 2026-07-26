@@ -42,9 +42,13 @@ from redforge.adapters.subfinder import (
     SubfinderSubdomainProvider,
 )
 from redforge.adapters.technology_detection import (
+    WHATWEB_TOOL,
+    WHATWEB_TOOL_ID,
     TechnologyDetectionAdapter,
     TechnologyDetectionResult,
     TechnologyDetector,
+    WhatWebConfig,
+    WhatWebTechnologyDetectionProvider,
 )
 from redforge.adapters.tool_runner import LocalSubprocessToolRunner
 
@@ -82,6 +86,10 @@ __all__ = [
     "TechnologyDetectionAdapter",
     "TechnologyDetectionResult",
     "TechnologyDetector",
+    "WHATWEB_TOOL",
+    "WHATWEB_TOOL_ID",
+    "WhatWebConfig",
+    "WhatWebTechnologyDetectionProvider",
     "VulnerabilityProvider",
     "WebCrawlAdapterResult",
     "WebCrawler",

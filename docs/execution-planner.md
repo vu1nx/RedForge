@@ -129,6 +129,12 @@ Katana is only the default provider behind `web_crawl`. It is not a capability
 or plan step. Replacing the provider does not change the graph, and
 technology detection continues to depend on crawler `ENDPOINTS`.
 
+WhatWeb is likewise only the default provider behind
+`technology_detection`. Planning sees the typed capability and its
+`ENDPOINTS -> TECHNOLOGIES` state contract, never the executable or tool
+identity. Registry construction and pipeline building do not check WhatWeb
+availability or start a process.
+
 `create_default_planned_execution()` assembles the default descriptor registry,
 planner, factory registry, builder, and facade. Tests can supply
 `CapabilityDependencies` with fake ports; no live network, DNS, or external

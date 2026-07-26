@@ -230,6 +230,35 @@ The target is a documentation-only placeholder. RedForge does not install
 Katana or configure credentials. See
 [Katana Web Crawl Integration](docs/katana-integration.md).
 
+### WhatWeb technology detection
+
+WhatWeb is the default replaceable provider for the `technology_detection`
+capability. The capability consumes crawler `ENDPOINTS`; WhatWeb remains a
+separate tool identity and never appears in an execution plan.
+
+```python
+from redforge.adapters import (
+    WHATWEB_TOOL,
+    LocalSubprocessToolRunner,
+    WhatWebConfig,
+    WhatWebTechnologyDetectionProvider,
+)
+from redforge.domain import Endpoint
+
+provider = WhatWebTechnologyDetectionProvider(
+    runner=LocalSubprocessToolRunner(),
+    definition=WHATWEB_TOOL,
+    config=WhatWebConfig(),
+)
+result = provider.detect(
+    (Endpoint("app.example.com", 443, "https", "/"),)
+)
+```
+
+The endpoint is a documentation-only placeholder. RedForge does not install
+WhatWeb, probe its version during composition, or configure authentication.
+See [WhatWeb Technology Detection Integration](docs/technology-detection-integration.md).
+
 ## Multi-Output State
 
 A capability may publish several typed state values from one execution. The

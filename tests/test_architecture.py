@@ -565,7 +565,6 @@ def test_direct_subprocess_imports_are_limited_to_runner_and_known_debt() -> Non
         if "subprocess" in _imports(path)
     }
     assert importing == {
-        "technology_detection.py",
         "tool_runner.py",
     }
 
@@ -600,6 +599,38 @@ def test_katana_provider_and_web_crawl_capability_preserve_boundaries() -> None:
             encoding="utf-8"
         )
         assert "katana" not in source.lower()
+
+
+def test_whatweb_provider_and_technology_capability_preserve_boundaries() -> None:
+    capability_path = _SOURCE_ROOT / "capabilities" / "technology_detection.py"
+    capability_imports = _imports(capability_path)
+    capability_source = capability_path.read_text(encoding="utf-8")
+    assert "redforge.sdk.technology_detection" in capability_imports
+    assert "redforge.adapters" not in capability_imports
+    assert "redforge.sdk.tool" not in capability_imports
+    assert "subprocess" not in capability_imports
+    assert "WhatWeb" not in capability_source
+    assert "context.publish" not in capability_source
+
+    adapter_path = _SOURCE_ROOT / "adapters" / "technology_detection.py"
+    adapter_imports = _imports(adapter_path)
+    adapter_source = adapter_path.read_text(encoding="utf-8")
+    assert "redforge.sdk.tool" in adapter_imports
+    assert "subprocess" not in adapter_imports
+    assert "shutil" not in adapter_imports
+    assert "redforge.runtime" not in adapter_imports
+    assert "redforge.sdk.context" not in adapter_imports
+    assert "StatePublication" not in adapter_source
+    assert "LocalSubprocessToolRunner" not in adapter_source
+    assert "shell=True" not in adapter_source
+    assert "os.system(" not in adapter_source
+    assert "extra_args" not in adapter_source
+
+    for filename in ("planner.py", "builder.py"):
+        source = (_SOURCE_ROOT / "planning" / filename).read_text(
+            encoding="utf-8"
+        )
+        assert "whatweb" not in source.lower()
 
 
 def test_httpx_adapter_has_no_unsafe_or_expansive_probe_flags() -> None:

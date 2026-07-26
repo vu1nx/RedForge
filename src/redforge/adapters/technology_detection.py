@@ -1,321 +1,582 @@
-"""Adapter for WhatWeb technology detection."""
+"""WhatWeb technology detection implemented through the ToolRunner port."""
 
 import json
-import shutil
-import subprocess
+import math
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass
+from ipaddress import IPv6Address, ip_address
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import cast
 
-from redforge.adapters.errors import (
-    AdapterConfigurationError,
-    AdapterError,
-    AdapterResponseError,
-    AdapterUnavailableError,
-)
+from redforge.domain.endpoint import Endpoint
+from redforge.domain.http_probe import normalize_http_url
 from redforge.domain.technology import Technology
+from redforge.sdk.technology_detection import (
+    TechnologyDetectionProvider,
+    TechnologyDetectionProviderResult,
+    TechnologyDetectionProviderStatus,
+)
+from redforge.sdk.tool import (
+    ToolDefinition,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+    ToolId,
+    ToolInvocation,
+    ToolRunner,
+)
 
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+WHATWEB_TOOL_ID = ToolId("whatweb")
+WHATWEB_TOOL = ToolDefinition(
+    tool_id=WHATWEB_TOOL_ID,
+    display_name="WhatWeb",
+    description="Detects technologies used by discovered web endpoints.",
+    executable="whatweb",
+    version_argument=("--version",),
+    default_timeout_seconds=120.0,
+    tags=("fingerprint", "technology", "web"),
+)
 
-
-class TechnologyDetectionAdapterError(AdapterError):
-    """Base exception for technology detection adapter errors."""
-
-    pass
-
-
-class TechnologyDetectionNotFoundError(
-    TechnologyDetectionAdapterError, AdapterConfigurationError
-):
-    """Raised when WhatWeb binary is not found."""
-
-    pass
-
-
-class TechnologyDetectionExecutionError(
-    TechnologyDetectionAdapterError, AdapterUnavailableError
-):
-    """Raised when WhatWeb execution fails."""
-
-    def __init__(self, returncode: int | None, stderr: str) -> None:
-        self.returncode = returncode
-        del stderr
-        if returncode is None:
-            message = "WhatWeb execution failed"
-        else:
-            message = f"WhatWeb execution failed with return code {returncode}"
-        super().__init__(message)
-
-
-class TechnologyDetectionParseError(
-    TechnologyDetectionAdapterError, AdapterResponseError
-):
-    """Raised when WhatWeb output cannot be parsed."""
-
-    pass
+_MAX_URL_LENGTH = 4_096
+_MAX_NAME_LENGTH = 256
+_MAX_VERSION_LENGTH = 128
+_MAX_EVIDENCE_LENGTH = 256
+_EVIDENCE_FIELDS = ("string", "os", "model", "firmware", "module")
 
 
 @dataclass(frozen=True, slots=True)
-class TechnologyDetectionResult:
-    """Typed deterministic technology detector output."""
+class WhatWebConfig:
+    """Conservative immutable WhatWeb execution and scan policy."""
 
-    technologies: tuple[Technology, ...] = ()
+    timeout_seconds: float | None = None
+    open_timeout_seconds: int = 10
+    read_timeout_seconds: int = 15
+    max_threads: int = 10
+    max_targets: int = 256
+    max_input_bytes: int = 65_536
+    max_output_bytes: int = 1_048_576
+    max_records: int = 10_000
 
-
-class TechnologyDetector(Protocol):
-    """Minimal technology detection port."""
-
-    def detect(self, endpoints: tuple[str, ...]) -> TechnologyDetectionResult:
-        """Detect technologies for sanitized endpoint URLs."""
-        ...
-
-
-class TechnologyDetectionAdapter:
-    """Adapter for executing WhatWeb and parsing its JSON output.
-
-    This adapter handles subprocess execution, output capture, and parsing
-    of technology detection results from WhatWeb into Technology domain objects.
-    """
-
-    def __init__(self, binary_path: str = "whatweb", timeout_seconds: float = 120.0) -> None:
-        """Initialize the technology detection adapter.
-
-        Args:
-            binary_path: Path to the WhatWeb binary (default: "whatweb").
-            timeout_seconds: Maximum execution time before terminating WhatWeb.
-        """
-        self.binary_path = binary_path
-        self.timeout_seconds = timeout_seconds
-
-    def verify_binary(self) -> None:
-        """Verify that WhatWeb binary exists and is executable.
-
-        Raises:
-            TechnologyDetectionNotFoundError: If WhatWeb binary is not found.
-        """
-        if not shutil.which(self.binary_path):
-            raise TechnologyDetectionNotFoundError("WhatWeb binary not found")
-
-    def detect_technologies(self, endpoints: list[str]) -> list[Technology]:
-        """Detect technologies for the given endpoints using WhatWeb.
-
-        Args:
-            endpoints: List of endpoint URLs to analyze.
-
-        Returns:
-            List of detected technologies.
-
-        Raises:
-            TechnologyDetectionNotFoundError: If WhatWeb binary is not found.
-            TechnologyDetectionExecutionError: If WhatWeb execution fails.
-            TechnologyDetectionParseError: If WhatWeb output cannot be parsed.
-        """
-        if not endpoints:
-            return []
-
-        self.verify_binary()
-
-        with tempfile.TemporaryDirectory(prefix="redforge-whatweb-") as temporary_directory:
-            directory = Path(temporary_directory)
-            input_path = directory / "targets.txt"
-            output_path = directory / "results.json"
-            input_path.write_text("\n".join(endpoints), encoding="utf-8")
-
-            command: Sequence[str] = [
-                self.binary_path,
-                f"--input-file={input_path}",
-                f"--log-json={output_path}",
-                "--quiet",
-            ]
-            try:
-                subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=self.timeout_seconds,
+    def __post_init__(self) -> None:
+        timeout = cast(object, self.timeout_seconds)
+        if timeout is not None and (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or not 0 < timeout <= 3_600
+        ):
+            raise ValueError(
+                "WhatWeb execution timeout must be between 0 and 3600 seconds"
+            )
+        for label, value, maximum in (
+            ("open timeout", self.open_timeout_seconds, 300),
+            ("read timeout", self.read_timeout_seconds, 600),
+            ("thread count", self.max_threads, 100),
+            ("target count", self.max_targets, 10_000),
+            ("input limit", self.max_input_bytes, 1_048_576),
+            ("output limit", self.max_output_bytes, 10_485_760),
+            ("record limit", self.max_records, 100_000),
+        ):
+            if (
+                not isinstance(cast(object, value), int)
+                or isinstance(cast(object, value), bool)
+                or not 1 <= value <= maximum
+            ):
+                raise ValueError(
+                    f"WhatWeb {label} must be between 1 and {maximum}"
                 )
-            except subprocess.CalledProcessError as e:
-                raise TechnologyDetectionExecutionError(e.returncode, e.stderr) from e
-            except subprocess.TimeoutExpired as e:
-                raise TechnologyDetectionExecutionError(
-                    None, f"timed out after {self.timeout_seconds:g} seconds"
-                ) from e
-            except OSError as e:
-                raise TechnologyDetectionExecutionError(None, str(e)) from e
 
-            if not output_path.exists():
-                raise TechnologyDetectionParseError("WhatWeb did not create its JSON output file")
 
-            return self._parse_output(output_path.read_text(encoding="utf-8"))
+@dataclass(frozen=True, slots=True)
+class _PreparedTargets:
+    targets: tuple[str, ...]
+    approved_targets: frozenset[str]
 
-    def detect(self, endpoints: tuple[str, ...]) -> TechnologyDetectionResult:
-        """Implement the typed technology detector port."""
-        technologies = self.detect_technologies(list(endpoints))
-        return TechnologyDetectionResult(
-            technologies=tuple(sorted(set(technologies), key=_technology_sort_key))
+
+@dataclass(frozen=True, slots=True)
+class _ParseSummary:
+    technologies: tuple[Technology, ...]
+    malformed_record_count: int
+    out_of_scope_count: int
+    duplicate_count: int
+    record_count: int
+
+    @property
+    def has_issues(self) -> bool:
+        return bool(
+            self.malformed_record_count or self.out_of_scope_count
         )
 
-    def _parse_output(self, output: str) -> list[Technology]:
-        technologies: list[Technology] = []
-        seen: set[Technology] = set()
-        if not output.strip():
-            return technologies
 
-        try:
-            parsed = json.loads(output)
-        except json.JSONDecodeError as e:
-            raise TechnologyDetectionParseError(
-                f"Failed to parse WhatWeb JSON output: {e}"
-            ) from e
+def _valid_text(value: object, *, maximum: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if (
+        not normalized
+        or len(normalized) > maximum
+        or any(
+            ord(character) < 32 or ord(character) == 127
+            for character in normalized
+        )
+    ):
+        return None
+    return normalized
 
-        if not isinstance(parsed, list):
-            raise TechnologyDetectionParseError("WhatWeb JSON output must be an array")
 
-        for item in cast(list[Any], parsed):
-            if not isinstance(item, dict):
-                raise TechnologyDetectionParseError(
-                    "Each WhatWeb JSON result must be an object"
-                )
-            entry = cast(dict[str, Any], item)
-            endpoint_technologies = self._entry_to_technologies(entry)
-            for tech in endpoint_technologies:
-                if tech in seen:
-                    continue
-                seen.add(tech)
-                technologies.append(tech)
+def _endpoint_url(endpoint: Endpoint) -> str:
+    if not isinstance(cast(object, endpoint), Endpoint):
+        raise TypeError("technology detection input contains an invalid endpoint")
+    scheme = endpoint.protocol.lower()
+    if scheme not in {"http", "https"}:
+        raise ValueError("technology detection supports only HTTP endpoints")
+    try:
+        address = ip_address(endpoint.host)
+    except ValueError:
+        serialized_host = endpoint.host
+    else:
+        serialized_host = (
+            f"[{address}]" if isinstance(address, IPv6Address) else str(address)
+        )
+    if (
+        not isinstance(cast(object, endpoint.port), int)
+        or isinstance(cast(object, endpoint.port), bool)
+        or not 1 <= endpoint.port <= 65_535
+    ):
+        raise ValueError("technology detection endpoint port is invalid")
+    path = endpoint.path or "/"
+    if not isinstance(cast(object, path), str) or not path.startswith("/"):
+        raise ValueError("technology detection endpoint path is invalid")
+    default_port = 443 if scheme == "https" else 80
+    authority = (
+        serialized_host
+        if endpoint.port == default_port
+        else f"{serialized_host}:{endpoint.port}"
+    )
+    normalized = normalize_http_url(f"{scheme}://{authority}{path}").value
+    if len(normalized) > _MAX_URL_LENGTH:
+        raise ValueError("technology detection endpoint URL is too long")
+    return normalized
 
-        return technologies
 
-    def _entry_to_technologies(self, entry: dict[str, Any]) -> list[Technology]:
-        """Convert a WhatWeb entry to Technology objects."""
-        technologies: list[Technology] = []
-        plugins = entry.get("plugins", {})
-        target = entry.get("target")
-        source = target if isinstance(target, str) and target else None
-
-        if not isinstance(plugins, dict):
-            return technologies
-
-        typed_plugins = cast(dict[str, Any], plugins)
-        for plugin_name, plugin_data in typed_plugins.items():
-            if not isinstance(plugin_data, dict):
-                continue
-
-            technologies.extend(
-                self._plugin_to_technologies(
-                    plugin_name, cast(dict[str, Any], plugin_data), source
-                )
-            )
-
-        return technologies
-
-    def _plugin_to_technologies(
-        self, plugin_name: str, plugin_data: dict[str, Any], source: str | None
-    ) -> list[Technology]:
-        """Convert one WhatWeb plugin result to technology observations."""
-        versions = self._string_values(plugin_data.get("version")) or [None]
-        evidence = self._extract_evidence(plugin_data)
-        confidence = self._extract_confidence(plugin_data)
-        category = self._infer_category(plugin_name)
-
-        return [
-            Technology(
-                name=plugin_name,
-                category=category,
-                version=version,
-                source=source,
-                evidence=evidence,
-                confidence=confidence,
-            )
-            for version in versions
-        ]
-
-    def _extract_evidence(self, plugin_data: dict[str, Any]) -> tuple[str, ...]:
-        """Extract useful match metadata without retaining adapter-specific structures."""
-        evidence: list[str] = []
-        for field in ("string", "os", "account", "model", "firmware", "module", "filepath"):
-            evidence.extend(
-                f"{field}: {value}" for value in self._string_values(plugin_data.get(field))
-            )
-        return tuple(evidence)
-
-    def _extract_confidence(self, plugin_data: dict[str, Any]) -> int | None:
-        """Return WhatWeb certainty, which is omitted when the match is certain."""
-        certainty = plugin_data.get("certainty")
-        if certainty is None:
-            return 100
-        if isinstance(certainty, bool) or not isinstance(certainty, int):
-            return None
-        return certainty if 0 <= certainty <= 100 else None
-
-    def _string_values(self, value: Any) -> list[str]:
-        """Normalize WhatWeb scalar or array fields to non-empty strings."""
-        if isinstance(value, str):
-            return [value] if value else []
-        if not isinstance(value, list):
-            return []
-        return [item for item in cast(list[Any], value) if isinstance(item, str) and item]
-
-    def _infer_category(self, plugin_name: str) -> str:
-        """Infer technology category from plugin name."""
-        plugin_lower = plugin_name.lower()
-
-        # Common web frameworks
-        if any(
-            fw in plugin_lower
-            for fw in ["django", "flask", "rails", "express", "spring", "laravel"]
-        ):
-            return "framework"
-
-        # Web servers
-        if any(
-            ws in plugin_lower
-            for ws in ["nginx", "apache", "iis", "lighttpd", "caddy", "traefik"]
-        ):
-            return "web-server"
-
-        # Databases
-        if any(
-            db in plugin_lower
-            for db in ["mysql", "postgresql", "mongodb", "redis", "sqlite", "oracle"]
-        ):
-            return "database"
-
-        # JavaScript libraries
-        if any(
-            js in plugin_lower
-            for js in ["jquery", "react", "angular", "vue", "backbone", "ember"]
-        ):
-            return "javascript-library"
-
-        # CMS
-        if any(cms in plugin_lower for cms in ["wordpress", "drupal", "joomla", "ghost"]):
-            return "cms"
-
-        # Analytics
-        if any(
-            an in plugin_lower for an in ["google analytics", "analytics", "tracking"]
-        ):
-            return "analytics"
-
-        # CDNs
-        if any(cdn in plugin_lower for cdn in ["cloudflare", "akamai", "fastly"]):
-            return "cdn"
-
-        # Default category
-        return "other"
+def _prepare_targets(
+    endpoints: tuple[Endpoint, ...],
+    config: WhatWebConfig,
+) -> _PreparedTargets:
+    if not isinstance(cast(object, endpoints), tuple):
+        raise TypeError("technology detection endpoints must be an immutable tuple")
+    targets = tuple(sorted({_endpoint_url(endpoint) for endpoint in endpoints}))
+    if len(targets) > config.max_targets:
+        raise ValueError("technology detection target count exceeds the limit")
+    serialized_size = sum(len(target.encode("utf-8")) + 1 for target in targets)
+    if serialized_size > config.max_input_bytes:
+        raise ValueError("technology detection target input exceeds the limit")
+    return _PreparedTargets(targets, frozenset(targets))
 
 
 def _technology_sort_key(technology: Technology) -> tuple[object, ...]:
     return (
+        technology.source or "",
+        technology.name.casefold(),
         technology.name,
         technology.category,
         technology.version or "",
         technology.vendor or "",
-        technology.source or "",
+        technology.description or "",
         technology.evidence,
         technology.confidence if technology.confidence is not None else -1,
     )
+
+
+def _infer_category(plugin_name: str) -> str:
+    name = plugin_name.casefold()
+    categories = (
+        ("framework", ("django", "flask", "rails", "express", "spring", "laravel")),
+        ("web-server", ("nginx", "apache", "iis", "lighttpd", "caddy", "traefik")),
+        ("database", ("mysql", "postgresql", "mongodb", "redis", "sqlite", "oracle")),
+        ("javascript-library", ("jquery", "react", "angular", "vue", "backbone", "ember")),
+        ("cms", ("wordpress", "drupal", "joomla", "ghost")),
+        ("analytics", ("google analytics", "analytics", "tracking")),
+        ("cdn", ("cloudflare", "akamai", "fastly")),
+    )
+    for category, markers in categories:
+        if any(marker in name for marker in markers):
+            return category
+    return "other"
+
+
+def _string_values(
+    value: object,
+    *,
+    maximum: int,
+) -> tuple[tuple[str, ...], int]:
+    if value is None:
+        return (), 0
+    raw_values: tuple[object, ...]
+    if isinstance(value, str):
+        raw_values = (value,)
+    elif isinstance(value, list):
+        raw_values = tuple(cast(list[object], value))
+    else:
+        return (), 1
+    normalized: list[str] = []
+    invalid = 0
+    for item in raw_values:
+        text = _valid_text(item, maximum=maximum)
+        if text is None:
+            invalid += 1
+        else:
+            normalized.append(text)
+    return tuple(dict.fromkeys(normalized)), invalid
+
+
+def _plugin_technologies(
+    plugin_name: object,
+    plugin_data: object,
+    *,
+    source: str,
+) -> tuple[tuple[Technology, ...], int]:
+    name = _valid_text(plugin_name, maximum=_MAX_NAME_LENGTH)
+    if name is None or not isinstance(plugin_data, dict):
+        return (), 1
+    data = cast(dict[object, object], plugin_data)
+    certainty = data.get("certainty")
+    if certainty is None:
+        confidence = 100
+    elif (
+        isinstance(certainty, int)
+        and not isinstance(certainty, bool)
+        and 0 <= certainty <= 100
+    ):
+        confidence = certainty
+    else:
+        return (), 1
+
+    raw_versions = data.get("version")
+    if raw_versions in (None, "", []):
+        versions = ()
+        invalid = 0
+    else:
+        versions, invalid = _string_values(
+            raw_versions,
+            maximum=_MAX_VERSION_LENGTH,
+        )
+        if not versions:
+            return (), invalid or 1
+    if not versions:
+        versions_or_none: tuple[str | None, ...] = (None,)
+    else:
+        versions_or_none = cast(tuple[str | None, ...], versions)
+
+    evidence: list[str] = []
+    for field in _EVIDENCE_FIELDS:
+        values, field_invalid = _string_values(
+            data.get(field),
+            maximum=_MAX_EVIDENCE_LENGTH,
+        )
+        invalid += field_invalid
+        evidence.extend(f"{field}: {value}" for value in values)
+    normalized_evidence = tuple(dict.fromkeys(evidence))
+    return (
+        tuple(
+            Technology(
+                name=name,
+                category=_infer_category(name),
+                version=version,
+                source=source,
+                evidence=normalized_evidence,
+                confidence=confidence,
+            )
+            for version in versions_or_none
+        ),
+        invalid,
+    )
+
+
+def _parse_json(
+    output: str,
+    *,
+    approved_targets: frozenset[str],
+    max_records: int,
+) -> _ParseSummary:
+    if not output.strip():
+        return _ParseSummary((), 0, 0, 0, 0)
+    try:
+        parsed = json.loads(output)
+    except (json.JSONDecodeError, TypeError):
+        return _ParseSummary((), 1, 0, 0, 1)
+    if not isinstance(parsed, list):
+        return _ParseSummary((), 1, 0, 0, 1)
+    records = cast(list[object], parsed)
+    if len(records) > max_records:
+        return _ParseSummary((), 1, 0, 0, len(records))
+
+    technologies: dict[Technology, Technology] = {}
+    malformed = 0
+    out_of_scope = 0
+    duplicates = 0
+    for item in records:
+        if not isinstance(item, dict):
+            malformed += 1
+            continue
+        record = cast(dict[object, object], item)
+        target = record.get("target")
+        if not isinstance(target, str):
+            malformed += 1
+            continue
+        try:
+            source = normalize_http_url(target).value
+        except (TypeError, ValueError):
+            malformed += 1
+            continue
+        if source not in approved_targets:
+            out_of_scope += 1
+            continue
+        plugins = record.get("plugins", {})
+        if not isinstance(plugins, dict):
+            malformed += 1
+            continue
+        for plugin_name, plugin_data in cast(
+            dict[object, object], plugins
+        ).items():
+            observations, invalid = _plugin_technologies(
+                plugin_name,
+                plugin_data,
+                source=source,
+            )
+            malformed += invalid
+            for technology in observations:
+                if technology in technologies:
+                    duplicates += 1
+                else:
+                    technologies[technology] = technology
+    ordered = tuple(sorted(technologies.values(), key=_technology_sort_key))
+    return _ParseSummary(
+        ordered,
+        malformed,
+        out_of_scope,
+        duplicates,
+        len(records),
+    )
+
+
+class WhatWebTechnologyDetectionProvider:
+    """Build safe WhatWeb invocations and normalize its JSON evidence."""
+
+    def __init__(
+        self,
+        *,
+        runner: ToolRunner,
+        definition: ToolDefinition = WHATWEB_TOOL,
+        config: WhatWebConfig | None = None,
+    ) -> None:
+        if not isinstance(cast(object, definition), ToolDefinition):
+            raise TypeError("WhatWeb provider requires a ToolDefinition")
+        if definition.tool_id != WHATWEB_TOOL_ID:
+            raise ValueError("WhatWeb provider tool identity does not match")
+        self._runner = runner
+        self._definition = definition
+        self._config = config or WhatWebConfig()
+
+    @property
+    def definition(self) -> ToolDefinition:
+        """Return immutable WhatWeb executable metadata."""
+        return self._definition
+
+    @property
+    def config(self) -> WhatWebConfig:
+        """Return immutable supported WhatWeb configuration."""
+        return self._config
+
+    def _build_invocation(
+        self,
+        endpoints: tuple[Endpoint, ...],
+        *,
+        output_path: Path,
+    ) -> ToolInvocation:
+        """Return one deterministic bounded batch invocation."""
+        prepared = _prepare_targets(endpoints, self._config)
+        if not prepared.targets:
+            raise ValueError("WhatWeb invocation requires at least one target")
+        arguments = (
+            f"--log-json={output_path}",
+            "--quiet",
+            "--colour=never",
+            "--no-errors",
+            "--no-cookies",
+            "--aggression=1",
+            "--follow-redirect=never",
+            "--max-redirects=0",
+            f"--max-threads={self._config.max_threads}",
+            f"--open-timeout={self._config.open_timeout_seconds}",
+            f"--read-timeout={self._config.read_timeout_seconds}",
+            *prepared.targets,
+        )
+        return ToolInvocation(
+            tool_id=self._definition.tool_id,
+            arguments=arguments,
+            timeout_seconds=self._config.timeout_seconds,
+        )
+
+    def detect(
+        self,
+        endpoints: tuple[Endpoint, ...],
+    ) -> TechnologyDetectionProviderResult:
+        """Run WhatWeb once for the approved endpoint batch."""
+        try:
+            prepared = _prepare_targets(endpoints, self._config)
+        except (TypeError, ValueError):
+            return TechnologyDetectionProviderResult(
+                status=TechnologyDetectionProviderStatus.ERROR,
+                message="Technology detection input is invalid.",
+            )
+        if not prepared.targets:
+            return TechnologyDetectionProviderResult()
+
+        output_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                prefix="redforge-whatweb-",
+                suffix=".json",
+                delete=False,
+            ) as output_file:
+                output_path = Path(output_file.name)
+            invocation = self._build_invocation(
+                endpoints,
+                output_path=output_path,
+            )
+            result = self._runner.run(self._definition, invocation)
+            output, output_truncated = self._output(
+                output_path,
+                result,
+            )
+        except Exception:
+            return TechnologyDetectionProviderResult(
+                status=TechnologyDetectionProviderStatus.ERROR,
+                message="WhatWeb execution failed.",
+            )
+        finally:
+            if output_path is not None:
+                with suppress(OSError):
+                    output_path.unlink(missing_ok=True)
+        return self._map_result(
+            result,
+            output=output,
+            output_truncated=output_truncated,
+            approved_targets=prepared.approved_targets,
+        )
+
+    def _output(
+        self,
+        output_path: Path,
+        result: ToolExecutionResult,
+    ) -> tuple[str, bool]:
+        if output_path.is_file():
+            output_size = output_path.stat().st_size
+            if output_size > self._config.max_output_bytes:
+                return "", True
+            if output_size:
+                return (
+                    output_path.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    ),
+                    False,
+                )
+        encoded = result.stdout.encode("utf-8")
+        if len(encoded) > self._config.max_output_bytes:
+            return (
+                encoded[: self._config.max_output_bytes].decode(
+                    "utf-8", errors="replace"
+                ),
+                True,
+            )
+        return result.stdout, result.truncated
+
+    def _map_result(
+        self,
+        result: ToolExecutionResult,
+        *,
+        output: str,
+        output_truncated: bool,
+        approved_targets: frozenset[str],
+    ) -> TechnologyDetectionProviderResult:
+        if (
+            not isinstance(cast(object, result), ToolExecutionResult)
+            or result.tool_id != WHATWEB_TOOL_ID
+        ):
+            return TechnologyDetectionProviderResult(
+                status=TechnologyDetectionProviderStatus.ERROR,
+                message="WhatWeb execution returned an invalid result.",
+            )
+        if result.status is ToolExecutionStatus.NOT_FOUND:
+            return TechnologyDetectionProviderResult(
+                status=TechnologyDetectionProviderStatus.UNAVAILABLE,
+                message="WhatWeb executable is unavailable.",
+            )
+        if result.status is ToolExecutionStatus.ERROR:
+            return TechnologyDetectionProviderResult(
+                status=TechnologyDetectionProviderStatus.ERROR,
+                message="WhatWeb execution failed.",
+            )
+        if result.status is ToolExecutionStatus.FAILURE:
+            return TechnologyDetectionProviderResult(
+                status=TechnologyDetectionProviderStatus.FAILURE,
+                message="WhatWeb returned a non-zero exit status.",
+                truncated=output_truncated,
+            )
+
+        parsed = _parse_json(
+            output,
+            approved_targets=approved_targets,
+            max_records=self._config.max_records,
+        )
+        if result.status is ToolExecutionStatus.TIMEOUT:
+            if parsed.technologies:
+                status = TechnologyDetectionProviderStatus.PARTIAL
+                message = "Technology detection timed out with partial findings."
+            else:
+                status = TechnologyDetectionProviderStatus.FAILURE
+                message = "Technology detection timed out."
+        elif parsed.technologies:
+            status = (
+                TechnologyDetectionProviderStatus.PARTIAL
+                if parsed.has_issues or output_truncated
+                else TechnologyDetectionProviderStatus.SUCCESS
+            )
+            message = (
+                "WhatWeb output contained incomplete or rejected records."
+                if status is TechnologyDetectionProviderStatus.PARTIAL
+                else None
+            )
+        elif parsed.record_count or parsed.has_issues or output_truncated:
+            status = TechnologyDetectionProviderStatus.FAILURE
+            message = "WhatWeb output contained no valid approved evidence."
+        else:
+            status = TechnologyDetectionProviderStatus.SUCCESS
+            message = None
+        return TechnologyDetectionProviderResult(
+            technologies=parsed.technologies,
+            status=status,
+            message=message,
+            malformed_record_count=parsed.malformed_record_count,
+            out_of_scope_count=parsed.out_of_scope_count,
+            duplicate_count=parsed.duplicate_count,
+            truncated=output_truncated,
+        )
+
+
+# Compatibility names retained without a second adapter implementation.
+TechnologyDetectionAdapter = WhatWebTechnologyDetectionProvider
+TechnologyDetectionResult = TechnologyDetectionProviderResult
+TechnologyDetector = TechnologyDetectionProvider
+
+__all__ = [
+    "WHATWEB_TOOL",
+    "WHATWEB_TOOL_ID",
+    "TechnologyDetectionAdapter",
+    "TechnologyDetectionResult",
+    "TechnologyDetector",
+    "WhatWebConfig",
+    "WhatWebTechnologyDetectionProvider",
+]

@@ -63,11 +63,11 @@ class RecordingDetector:
     """Return one technology while recording crawler endpoint input."""
 
     def __init__(self) -> None:
-        self.inputs: list[tuple[str, ...]] = []
+        self.inputs: list[tuple[Endpoint, ...]] = []
 
     def detect(
         self,
-        endpoints: tuple[str, ...],
+        endpoints: tuple[Endpoint, ...],
     ) -> TechnologyDetectionResult:
         self.inputs.append(endpoints)
         return TechnologyDetectionResult(
@@ -206,7 +206,9 @@ def test_downstream_crawl_and_technology_detection_remain_separate() -> None:
     assert tuple(host.hostname for host in crawler.inputs[0]) == (
         "api.example.com",
     )
-    assert detector.inputs == [("https://api.example.com/",)]
+    assert detector.inputs == [
+        (Endpoint("api.example.com", 443, "https", "/"),)
+    ]
     assert len(runner.invocations) == 2
 
 
@@ -232,6 +234,6 @@ def test_empty_successful_http_probe_flows_through_downstream_stages() -> None:
     assert result.context.get(PipelineStateKey.ALIVE_HOSTS) == ()
     assert result.context.get(PipelineStateKey.HTTP_ENDPOINTS) == ()
     assert result.context.get(PipelineStateKey.ENDPOINTS) == ()
-    assert result.context.get(PipelineStateKey.TECHNOLOGIES) == []
+    assert result.context.get(PipelineStateKey.TECHNOLOGIES) == ()
     assert crawler.inputs == []
     assert detector.inputs == []

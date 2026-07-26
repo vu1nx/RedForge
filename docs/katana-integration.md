@@ -141,4 +141,4 @@ Current limitations:
 - there are no dynamic retries, caching, resume, or replanning;
 - `ALIVE_HOSTS` remains the canonical input instead of richer probe endpoints;
 - output retention is bounded after process capture rather than streamed;
-- technology detection remains a legacy direct-subprocess integration.
+- technology detection uses the ToolRunner-backed WhatWeb provider.

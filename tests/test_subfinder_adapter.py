@@ -70,6 +70,7 @@ def test_canonical_definition_and_registry_are_static() -> None:
         ToolId("httpx"),
         ToolId("katana"),
         SUBFINDER_TOOL_ID,
+        ToolId("whatweb"),
     )
     assert not hasattr(SUBFINDER_TOOL, "runner")
     assert not hasattr(SUBFINDER_TOOL, "capability")

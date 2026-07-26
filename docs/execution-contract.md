@@ -112,3 +112,11 @@ output publishes `()`. A partial result without endpoints becomes failure;
 failure, unavailable execution, and operational error publish nothing. One
 Katana invocation remains one `web_crawl` history entry. See
 [Katana Web Crawl Integration](katana-integration.md).
+
+Technology detection uses the same explicit publication boundary. Complete and
+usable partial WhatWeb provider results publish one immutable
+`TECHNOLOGIES` tuple. Clean empty output and empty input publish `()`. A partial
+result without evidence becomes failure; failure, unavailable execution, and
+operational error publish nothing. One WhatWeb batch invocation remains one
+`technology_detection` execution-history entry. See
+[WhatWeb Technology Detection Integration](technology-detection-integration.md).

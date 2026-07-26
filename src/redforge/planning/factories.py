@@ -9,7 +9,9 @@ from redforge.adapters.httpx import HttpxProbeProvider
 from redforge.adapters.katana import KatanaWebCrawlProvider
 from redforge.adapters.nvd import VulnerabilityProvider
 from redforge.adapters.subfinder import SubfinderSubdomainProvider
-from redforge.adapters.technology_detection import TechnologyDetector
+from redforge.adapters.technology_detection import (
+    WhatWebTechnologyDetectionProvider,
+)
 from redforge.adapters.tool_runner import LocalSubprocessToolRunner
 from redforge.capabilities.asset_intelligence import AssetIntelligenceCapability
 from redforge.capabilities.host_resolution import HostResolutionCapability
@@ -44,6 +46,7 @@ from redforge.sdk.capability_id import (
 )
 from redforge.sdk.http_probe import HttpProbeProvider
 from redforge.sdk.subdomain_discovery import SubdomainProvider
+from redforge.sdk.technology_detection import TechnologyDetectionProvider
 from redforge.sdk.tool import ToolRunner
 from redforge.sdk.web_crawl import WebCrawlProvider
 
@@ -146,7 +149,7 @@ class CapabilityDependencies:
     host_resolver: HostResolver | None = None
     http_transport: HttpProbeProvider | None = None
     web_crawler: WebCrawlProvider | None = None
-    technology_detector: TechnologyDetector | None = None
+    technology_detector: TechnologyDetectionProvider | None = None
     vulnerability_provider: VulnerabilityProvider | None = None
     tool_runner: ToolRunner | None = None
 
@@ -158,7 +161,7 @@ def create_default_factory_registry(
     host_resolver: HostResolver | None = None,
     http_transport: HttpProbeProvider | None = None,
     web_crawler: WebCrawlProvider | None = None,
-    technology_detector: TechnologyDetector | None = None,
+    technology_detector: TechnologyDetectionProvider | None = None,
     vulnerability_provider: VulnerabilityProvider | None = None,
     tool_runner: ToolRunner | None = None,
 ) -> CapabilityFactoryRegistry:
@@ -238,7 +241,15 @@ def create_default_factory_registry(
     registry.register(
         TECHNOLOGY_DETECTION,
         lambda: TechnologyDetectionCapability(
-            detector=configured.technology_detector
+            provider=(
+                configured.technology_detector
+                or WhatWebTechnologyDetectionProvider(
+                    runner=(
+                        configured.tool_runner
+                        or LocalSubprocessToolRunner()
+                    )
+                )
+            )
         ),
     )
     registry.register(ASSET_INTELLIGENCE, AssetIntelligenceCapability)

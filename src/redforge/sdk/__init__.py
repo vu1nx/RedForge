@@ -36,6 +36,11 @@ from redforge.sdk.subdomain_discovery import (
     SubdomainDiscoveryStatus,
     SubdomainProvider,
 )
+from redforge.sdk.technology_detection import (
+    TechnologyDetectionProvider,
+    TechnologyDetectionProviderResult,
+    TechnologyDetectionProviderStatus,
+)
 from redforge.sdk.tool import (
     ToolDefinition,
     ToolExecutionResult,
@@ -69,6 +74,9 @@ __all__ = [
     "SubdomainDiscoveryResult",
     "SubdomainDiscoveryStatus",
     "SubdomainProvider",
+    "TechnologyDetectionProvider",
+    "TechnologyDetectionProviderResult",
+    "TechnologyDetectionProviderStatus",
     "ToolDefinition",
     "ToolExecutionResult",
     "ToolExecutionStatus",

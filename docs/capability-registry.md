@@ -151,3 +151,11 @@ Katana is a replaceable provider and never appears in a plan. The registry
 contract remains `ALIVE_HOSTS -> web_crawl -> ENDPOINTS`; tool metadata and
 configuration remain outside capability definitions. See
 [Katana Web Crawl Integration](katana-integration.md).
+
+`CapabilityId("technology_detection")` remains distinct from
+`ToolId("whatweb")`. WhatWeb is a replaceable provider and never appears in a
+plan. The registry contract remains
+`ENDPOINTS -> technology_detection -> TECHNOLOGIES`; tool metadata,
+configuration, and executable availability remain outside capability
+definitions. See
+[WhatWeb Technology Detection Integration](technology-detection-integration.md).

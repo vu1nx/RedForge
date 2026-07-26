@@ -68,7 +68,7 @@ class FakeDetector:
 
     def detect(
         self,
-        endpoints: tuple[str, ...],  # noqa: ARG002
+        endpoints: tuple[Endpoint, ...],  # noqa: ARG002
     ) -> TechnologyDetectionResult:
         return TechnologyDetectionResult(
             technologies=(

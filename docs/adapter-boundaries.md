@@ -55,10 +55,10 @@ CPE DTO construction, CVSS metric selection, and severity translation.
 Vulnerability Intelligence receives typed CPE candidates and vulnerability
 records and retains conservative exact product/version matching.
 
-The ProjectDiscovery and WhatWeb adapters translate subprocess output into
-typed host, endpoint, technology, or discovered-name results. Host Resolution
-continues to canonicalize IPv4/IPv6 addresses without making reachability
-claims.
+The ProjectDiscovery and WhatWeb adapters translate bounded `ToolRunner`
+results into typed host, endpoint, technology, or discovered-name evidence.
+Host Resolution continues to canonicalize IPv4/IPv6 addresses without making
+reachability claims.
 
 Retries remain provider-local where already implemented. There is no plugin
 registry, global retry or timeout framework, circuit breaker, caching,

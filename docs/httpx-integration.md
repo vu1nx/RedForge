@@ -186,5 +186,5 @@ Current limitations:
 - Katana consumes `ALIVE_HOSTS` through the ToolRunner-backed web-crawl
   provider; a future input-contract milestone may choose to consume richer
   `HTTP_ENDPOINTS` evidence;
-- technology detection remains a legacy direct-subprocess adapter;
+- technology detection uses the ToolRunner-backed WhatWeb provider;
 - technology detection continues to consume crawler-produced `ENDPOINTS`.

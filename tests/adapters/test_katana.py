@@ -10,6 +10,7 @@ from redforge.adapters import (
     KATANA_TOOL,
     KATANA_TOOL_ID,
     SUBFINDER_TOOL_ID,
+    WHATWEB_TOOL_ID,
     KatanaConfig,
     KatanaWebCrawlProvider,
     create_default_tool_registry,
@@ -74,6 +75,7 @@ def test_tool_identity_definition_and_default_registry() -> None:
         HTTPX_TOOL_ID,
         KATANA_TOOL_ID,
         SUBFINDER_TOOL_ID,
+        WHATWEB_TOOL_ID,
     )
     assert not hasattr(KATANA_TOOL, "runner")
     with pytest.raises(FrozenInstanceError):

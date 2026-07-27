@@ -5,6 +5,11 @@ from redforge.application.errors import (
     ScanConfigurationError,
     ScanPreparationError,
 )
+from redforge.application.inspection import (
+    ScanInspection,
+    ScanInspector,
+    ToolchainManifest,
+)
 from redforge.application.orchestration import (
     ScanOrchestrator,
     ScanResult,
@@ -59,6 +64,8 @@ __all__ = [
     "ScanConfig",
     "ScanConfigurationError",
     "ScanLimits",
+    "ScanInspection",
+    "ScanInspector",
     "ScanOrchestrator",
     "ScanPreflight",
     "ScanPreflightError",
@@ -70,5 +77,6 @@ __all__ = [
     "create_scan_limit_policy",
     "is_scan_result_accepted",
     "ToolReadinessProbe",
+    "ToolchainManifest",
     "prepare_scan",
 ]

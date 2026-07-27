@@ -66,12 +66,12 @@ status and do not create extra history entries.
 
 ## Scope policy
 
-For root `example.com`, `api.example.com` and
-`deep.api.example.com` are accepted. The root itself is excluded because the
+For root `authorized.example`, `api.authorized.example` and
+`deep.api.authorized.example` are accepted. The root itself is excluded because the
 published value represents discovered subdomains. Boundary-safe comparison
 uses `candidate.endswith("." + root)` after normalization, so
-`notexample.com`, `example.com.attacker.test`, and
-`api.example.com.attacker.test` are rejected.
+`notauthorized.example`, `authorized.example.attacker.test`, and
+`api.authorized.example.attacker.test` are rejected.
 
 ## Status mapping
 

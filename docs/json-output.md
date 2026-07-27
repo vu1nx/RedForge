@@ -115,3 +115,16 @@ export, streaming, ownership verification, retry, or resume behavior. TOML
 configuration and this output schema have independent schema versions;
 configuration contents are never serialized into this document. Diagnostic
 events use a third independent schema and are never nested into this result.
+
+## Dry-run document
+
+`redforge scan authorized.example --dry-run --output json` emits one separate
+execution-free document with `outcome` equal to `dry_run`. It retains JSON
+schema version 1 because the outcome is explicitly discriminated from an
+executed result. Its closed fields are the canonical target, preset,
+composition profile, planned capability IDs, required tool/provider IDs, exit
+code, and sanitized preflight summary.
+
+The dry-run document contains no runtime status, acceptance decision,
+capability execution count, `Context`, evidence, command, executable path,
+environment value, stdout, or stderr. See [Dry Run](dry-run.md).

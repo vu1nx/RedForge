@@ -215,3 +215,10 @@ planner, factory registry, builder, and runtime without subprocess, network, or
 filesystem dependencies. Tool identities remain confined to adapter
 composition: execution planning is capability- and state-driven, and external
 tool identities do not appear in execution plans.
+
+The complete audited reconnaissance inventory, command/input shapes, parser
+status policies, output bounds, and current availability-only version policy
+are documented in [Reconnaissance Toolchain](toolchain.md). The
+[dry-run boundary](dry-run.md) derives required tool IDs from the actual plan
+and lazy factory metadata without creating capabilities or invoking this
+runner.

@@ -163,3 +163,10 @@ Before Context creation, application
 [preflight](preflight-readiness.md) checks only the factories, tool
 definitions, executables, and provider roles derived from the prepared plan.
 It does not probe the target or predict runtime success.
+
+An execution-free [dry run](dry-run.md) stops after this preflight boundary.
+Its [toolchain manifest](toolchain.md) describes the same five-capability
+reconnaissance closure and four external tools without constructing the
+pipeline, creating `Context`, resolving hosts, executing tools, or publishing
+state. The first controlled authorized real-tool smoke run remains a separate
+operation.

@@ -9,6 +9,7 @@ from redforge.application import (
     ReadinessCheckResult,
     ReadinessReason,
     ReadinessStatus,
+    ScanInspection,
     ScanResult,
 )
 from redforge.runtime import DeadlineViolation, StateLimitViolation
@@ -20,6 +21,7 @@ class JsonOutcomeType(StrEnum):
     """Stable application phase represented by one JSON document."""
 
     COMPLETED = "completed"
+    DRY_RUN = "dry_run"
     NOT_READY = "not_ready"
     INVALID_INPUT = "invalid_input"
     INTERRUPTED = "interrupted"
@@ -108,6 +110,22 @@ class JsonScanOutcome:
     error: JsonError | None
 
 
+@dataclass(frozen=True, slots=True)
+class JsonDryRunOutcome:
+    """Execution-free toolchain inspection document."""
+
+    schema_version: int
+    outcome: JsonOutcomeType
+    exit_code: int
+    target: str
+    preset: str
+    composition_profile: str
+    capability_ids: tuple[str, ...]
+    tool_ids: tuple[str, ...]
+    provider_ids: tuple[str, ...]
+    preflight: JsonPreflightSummary
+
+
 type JsonPrimitive = str | int | bool | None
 type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
 
@@ -135,6 +153,31 @@ def build_completed_json_outcome(
             result.policy_violation
         ),
         error=None,
+    )
+
+
+def build_dry_run_json_outcome(
+    inspection: ScanInspection,
+    *,
+    preset: str,
+    composition_profile: str,
+    exit_code: int,
+) -> JsonDryRunOutcome:
+    """Extract only deterministic, non-executing toolchain metadata."""
+    manifest = inspection.manifest
+    return JsonDryRunOutcome(
+        schema_version=JSON_SCHEMA_VERSION,
+        outcome=JsonOutcomeType.DRY_RUN,
+        exit_code=exit_code,
+        target=inspection.config.scope.root.value,
+        preset=preset,
+        composition_profile=composition_profile,
+        capability_ids=tuple(
+            item.value for item in manifest.capability_ids
+        ),
+        tool_ids=tuple(item.value for item in manifest.tool_ids),
+        provider_ids=tuple(item.value for item in manifest.provider_ids),
+        preflight=build_json_preflight_summary(inspection.preflight),
     )
 
 
@@ -222,6 +265,28 @@ def render_json_outcome(outcome: JsonScanOutcome) -> str:
         "preflight": _preflight_payload(outcome.preflight),
         "policy_violation": _policy_payload(outcome.policy_violation),
         "error": _error_payload(outcome.error),
+    }
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def render_dry_run_json_outcome(outcome: JsonDryRunOutcome) -> str:
+    """Serialize the explicit dry-run DTO in stable key order."""
+    payload: dict[str, JsonValue] = {
+        "schema_version": outcome.schema_version,
+        "outcome": outcome.outcome.value,
+        "exit_code": outcome.exit_code,
+        "target": outcome.target,
+        "preset": outcome.preset,
+        "composition_profile": outcome.composition_profile,
+        "capability_ids": list(outcome.capability_ids),
+        "tool_ids": list(outcome.tool_ids),
+        "provider_ids": list(outcome.provider_ids),
+        "preflight": _preflight_payload(outcome.preflight),
     }
     return json.dumps(
         payload,

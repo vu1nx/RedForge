@@ -97,7 +97,7 @@ commonly used for credentials or session secrets are rejected.
 Every finding is matched against the exact normalized hostname or IP identities
 present in the input hosts. Scope does not use suffix matching, parent-domain
 widening, or redirect-derived identities. For an approved
-`api.example.com`, `api.example.com.attacker.test` and unrelated hosts are
+`api.authorized.example`, `api.authorized.example.attacker.test` and unrelated hosts are
 rejected.
 
 Crawler identity is `(scheme, hostname, port, path-with-query)`. The first

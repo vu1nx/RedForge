@@ -171,3 +171,9 @@ findings. Host resolution and the HTTP, crawl, and technology capabilities
 publish canonical empty values without invoking their providers when their
 inputs are empty. Intelligence capabilities then produce deterministic empty
 read models. See [End-to-End Pipeline](end-to-end-pipeline.md).
+
+`ScanInspector` deliberately does not implement this execution contract. It
+prepares the plan, derives the [toolchain manifest](toolchain.md), and runs
+static readiness only. The CLI [dry run](dry-run.md) cannot create execution
+history, invoke a capability, mutate `Context`, or publish even an empty state
+value.

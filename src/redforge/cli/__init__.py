@@ -2,7 +2,9 @@
 
 from redforge.cli.json_output import (
     JSON_SCHEMA_VERSION,
+    JsonDryRunOutcome,
     JsonScanOutcome,
+    render_dry_run_json_outcome,
     render_json_outcome,
 )
 from redforge.cli.main import (
@@ -10,6 +12,7 @@ from redforge.cli.main import (
     build_parser,
     main,
     render_preflight_result,
+    render_scan_inspection,
     render_scan_result,
 )
 from redforge.configuration import OutputFormat, ScanPreset
@@ -17,12 +20,15 @@ from redforge.configuration import OutputFormat, ScanPreset
 __all__ = [
     "ExitCode",
     "JSON_SCHEMA_VERSION",
+    "JsonDryRunOutcome",
     "JsonScanOutcome",
     "OutputFormat",
     "ScanPreset",
     "build_parser",
     "main",
     "render_preflight_result",
+    "render_dry_run_json_outcome",
     "render_json_outcome",
+    "render_scan_inspection",
     "render_scan_result",
 ]

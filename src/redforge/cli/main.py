@@ -14,17 +14,21 @@ from redforge.application import (
     ReadinessStatus,
     ScanConfig,
     ScanConfigurationError,
+    ScanInspection,
     ScanOrchestrator,
     ScanPreflightError,
     ScanResult,
 )
 from redforge.cli.json_output import (
+    JsonDryRunOutcome,
     JsonOutcomeType,
     JsonReasonCode,
     JsonScanOutcome,
     build_completed_json_outcome,
+    build_dry_run_json_outcome,
     build_error_json_outcome,
     build_preflight_json_outcome,
+    render_dry_run_json_outcome,
     render_json_outcome,
 )
 from redforge.composition import CompositionProfile
@@ -73,6 +77,7 @@ class CliOptions:
     output_format: OutputFormat | None = None
     allow_partial_results: bool | None = None
     log_level: ObservabilityLevel | None = None
+    dry_run: bool = False
     help_scope: HelpScope | None = None
 
 
@@ -99,10 +104,23 @@ class ScanExecutor(Protocol):
         ...
 
 
+class ScanInspectionService(Protocol):
+    """Narrow execution-free application service used by dry run."""
+
+    def inspect(self, config: ScanConfig) -> ScanInspection:
+        """Validate, plan, and preflight without execution."""
+        ...
+
+
 type OrchestratorFactory = Callable[[], ScanExecutor]
+type InspectorFactory = Callable[[], ScanInspectionService]
 type CompositionFactory = Callable[
     [CompositionProfile, DiagnosticEventSink],
     ScanExecutor,
+]
+type CompositionInspectionFactory = Callable[
+    [CompositionProfile],
+    ScanInspectionService,
 ]
 type ConfigurationLoader = Callable[[Path], RedForgeConfiguration]
 
@@ -149,6 +167,14 @@ def _configure_scan_parser(parser: argparse.ArgumentParser) -> None:
         choices=tuple(item.value for item in ObservabilityLevel),
         default=None,
         help="Diagnostic level: debug, info, warning, error, or off.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Inspect the plan and static readiness without creating runtime "
+            "state or executing tools."
+        ),
     )
     parser.add_argument(
         "-h",
@@ -275,6 +301,7 @@ def parse_cli_args(
             if namespace.log_level is not None
             else None
         ),
+        dry_run=cast(bool, namespace.dry_run),
     )
 
 
@@ -345,6 +372,46 @@ def render_preflight_result(result: PreflightResult) -> str:
     return "\n".join(lines)
 
 
+def render_scan_inspection(
+    inspection: ScanInspection,
+    *,
+    preset: ScanPreset,
+    composition_profile: CompositionProfile,
+) -> str:
+    """Render deterministic execution-free requirements without commands."""
+    manifest = inspection.manifest
+    lines = [
+        "Dry run completed",
+        f"Target: {inspection.config.scope.root.value}",
+        f"Preset: {preset.value}",
+        f"Composition profile: {composition_profile.value}",
+        f"Ready: {'yes' if inspection.preflight.ready else 'no'}",
+        "Planned capabilities:",
+        *(
+            f"- {capability_id.value}"
+            for capability_id in manifest.capability_ids
+        ),
+        "Required tools:",
+        *(
+            (f"- {tool_id.value}" for tool_id in manifest.tool_ids)
+            if manifest.tool_ids
+            else ("- none",)
+        ),
+        "Required providers:",
+        *(
+            (
+                f"- {provider_id.value}"
+                for provider_id in manifest.provider_ids
+            )
+            if manifest.provider_ids
+            else ("- none",)
+        ),
+    ]
+    if not inspection.preflight.ready:
+        lines.append(render_preflight_result(inspection.preflight))
+    return "\n".join(lines)
+
+
 def run_scan_command(
     config: ScanConfig,
     *,
@@ -360,6 +427,8 @@ def main(
     *,
     orchestrator_factory: OrchestratorFactory | None = None,
     composition_factory: CompositionFactory | None = None,
+    inspector_factory: InspectorFactory | None = None,
+    composition_inspection_factory: CompositionInspectionFactory | None = None,
     configuration_loader: ConfigurationLoader | None = None,
     diagnostic_sink: DiagnosticEventSink | None = None,
     stdout: TextIO | None = None,
@@ -402,6 +471,41 @@ def main(
         config = resolved.scan_config
         effective_output = resolved.output_format
         effective_preset = resolved.scan_preset
+        if options.dry_run:
+            inspection_service = (
+                inspector_factory()
+                if inspector_factory is not None
+                else (
+                    composition_inspection_factory
+                    or _default_inspector_factory
+                )(resolved.composition_profile)
+            )
+            inspection = inspection_service.inspect(config)
+            exit_code = (
+                ExitCode.ACCEPTED
+                if inspection.preflight.ready
+                else ExitCode.NOT_READY
+            )
+            if effective_output is OutputFormat.JSON:
+                _write_dry_run_json(
+                    output,
+                    build_dry_run_json_outcome(
+                        inspection,
+                        preset=resolved.scan_preset.value,
+                        composition_profile=(
+                            resolved.composition_profile.value
+                        ),
+                        exit_code=int(exit_code),
+                    ),
+                )
+                return int(exit_code)
+            rendered = render_scan_inspection(
+                inspection,
+                preset=resolved.scan_preset,
+                composition_profile=resolved.composition_profile,
+            )
+            output.write(f"{rendered}\n")
+            return int(exit_code)
         sink = (
             diagnostic_sink
             if diagnostic_sink is not None
@@ -569,6 +673,13 @@ def _write_json(output: TextIO, outcome: JsonScanOutcome) -> None:
     output.write(f"{render_json_outcome(outcome)}\n")
 
 
+def _write_dry_run_json(
+    output: TextIO,
+    outcome: JsonDryRunOutcome,
+) -> None:
+    output.write(f"{render_dry_run_json_outcome(outcome)}\n")
+
+
 def _default_orchestrator_factory(
     profile: CompositionProfile,
     diagnostic_sink: DiagnosticEventSink,
@@ -580,6 +691,15 @@ def _default_orchestrator_factory(
         profile,
         diagnostic_sink=diagnostic_sink,
     ).create_orchestrator()
+
+
+def _default_inspector_factory(
+    profile: CompositionProfile,
+) -> ScanInspectionService:
+    """Construct production inspection only for an explicit dry run."""
+    from redforge.composition import ApplicationComposition
+
+    return ApplicationComposition(profile).create_inspector()
 
 
 def _create_cli_diagnostic_sink(

@@ -105,3 +105,18 @@ interactive prompts, environment-driven or implicit configuration,
 persistence, retry, parallel execution, dynamic replanning, or cancellation
 of work already running inside a capability. It does not verify target
 ownership.
+
+## Dry run
+
+`redforge scan authorized.example --dry-run` uses the same target,
+configuration, preset, profile, output-precedence, and readiness contracts as a
+scan, but stops before pipeline construction. It creates no `Context`, executes
+no capability or external tool, performs no DNS resolution or target network
+access, and publishes no state.
+
+Human output lists only the canonical target, selected preset/profile, planned
+capability IDs, required tool/provider IDs, and sanitized readiness results.
+`--dry-run --output json` emits one `dry_run` document on stdout with the same
+bounded fields. Ready inspection exits 0; non-ready inspection exits 3.
+Commands, executable paths, environment values, evidence, and raw process
+output are never rendered. See [Dry Run](dry-run.md).

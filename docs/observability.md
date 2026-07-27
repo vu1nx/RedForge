@@ -98,3 +98,9 @@ outcomes retain their existing stdout contract; in particular,
 Importing observability, composition, configuration, or CLI modules configures
 no logger and emits nothing. CLI logger construction occurs only for an
 executed command with observability enabled.
+
+Dry run has no runtime lifecycle and therefore emits no scan-execution or
+capability events. Its human or JSON inspection document contains only typed
+manifest identities and the existing sanitized readiness summary. It never
+promotes executable paths, command arguments, environment data, parser
+evidence, stdout, or stderr into diagnostics. See [Dry Run](dry-run.md).

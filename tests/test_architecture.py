@@ -1367,3 +1367,85 @@ def test_cli_json_renderer_has_no_adapter_tool_context_or_io_dependencies() -> N
         "timestamp",
     ):
         assert forbidden_text not in source
+
+
+def test_real_tool_adapters_delegate_process_execution_to_tool_runner() -> None:
+    adapter_paths = tuple(
+        _SOURCE_ROOT / "adapters" / name
+        for name in (
+            "subfinder.py",
+            "httpx.py",
+            "katana.py",
+            "technology_detection.py",
+        )
+    )
+    for path in adapter_paths:
+        imports = _imports(path)
+        source = path.read_text(encoding="utf-8")
+        assert "subprocess" not in imports, path
+        assert "os" not in imports, path
+        assert "shell=True" not in source, path
+        assert "os.system" not in source, path
+        assert "Popen(" not in source, path
+        assert "ToolRunner" in source, path
+        assert ".run(self._definition, invocation)" in source, path
+
+
+def test_cli_application_and_runtime_do_not_know_tool_commands() -> None:
+    forbidden = (
+        "subfinder",
+        "httpx",
+        "katana",
+        "whatweb",
+        "shell=true",
+        "toolinvocation(",
+        "subprocess",
+    )
+    for package in ("cli", "application", "runtime"):
+        for path in (_SOURCE_ROOT / package).rglob("*.py"):
+            source = path.read_text(encoding="utf-8").lower()
+            for value in forbidden:
+                assert value not in source, path
+
+
+def test_scan_inspection_cannot_construct_or_execute_runtime() -> None:
+    path = _SOURCE_ROOT / "application" / "inspection.py"
+    imports = _imports(path)
+    source = path.read_text(encoding="utf-8")
+
+    for forbidden_import in (
+        "redforge.sdk.context",
+        "redforge.runtime",
+        "redforge.planning.builder",
+        "redforge.planning.execution",
+        "redforge.adapters",
+    ):
+        assert not any(
+            name == forbidden_import
+            or name.startswith(f"{forbidden_import}.")
+            for name in imports
+        )
+    for forbidden_source in (
+        "Context(",
+        "PipelineBuilder(",
+        "PlannedExecution(",
+        "create_initial_context(",
+        ".create(",
+    ):
+        assert forbidden_source not in source
+    assert "definition.requirements" in source
+
+
+def test_no_tool_installation_automation_is_present() -> None:
+    forbidden = (
+        "subprocess.run([\"pip\"",
+        "subprocess.run([\"winget\"",
+        "subprocess.run([\"choco\"",
+        "subprocess.run([\"apt\"",
+        "os.system(",
+        "--install-tools",
+    )
+    for path in _SOURCE_ROOT.rglob("*.py"):
+        source = path.read_text(encoding="utf-8").lower()
+        for value in forbidden:
+            assert value not in source, path

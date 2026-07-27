@@ -115,3 +115,13 @@ typed profile and application inputs; it does not construct this composition
 root. Composition provides no persistence, reports, retry, resume, scheduling,
 concurrency, caching, or long-lived container lifetime. Explicit provider
 binding remains the responsibility of the application host.
+
+## Execution-free inspection
+
+`ApplicationComposition.create_inspector()` returns the stable application
+`ScanInspector` contract. It builds fresh registry and readiness metadata but
+does not construct a pipeline, instantiate a capability, create a `Context`, or
+execute a provider. The resulting immutable `ToolchainManifest` is derived from
+the selected plan and factory readiness requirements; it is not a second
+registry and contains no concrete adapters, commands, executable paths, or
+environment data. The CLI uses this boundary for [dry run](dry-run.md).

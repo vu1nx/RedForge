@@ -77,6 +77,24 @@ tests. RedForge does not install external tools automatically. See the
 [End-to-End Pipeline](docs/end-to-end-pipeline.md) for the complete state graph,
 empty-result behavior, and failure boundaries.
 
+## Toolchain Inspection
+
+Before any separately authorized real-tool run, inspect the actual
+reconnaissance plan and static readiness without creating runtime state:
+
+```text
+redforge scan authorized.example --dry-run
+redforge scan authorized.example --dry-run --output json
+```
+
+Dry run validates the target and configuration, derives the plan and immutable
+toolchain manifest, and performs non-executing readiness checks. It does not
+create a `Context`, execute a capability or external tool, resolve DNS, access
+a network target, or publish state. The reconnaissance closure requires
+`subfinder`, `httpx`, `katana`, and `whatweb`; RedForge does not install or
+update them. See [Reconnaissance Toolchain](docs/toolchain.md) and
+[Dry Run](docs/dry-run.md).
+
 ## Scan Configuration
 
 Applications can validate one explicitly authorized DNS-root target and prepare

@@ -10,7 +10,11 @@ from redforge.adapters import (
     VulnerabilityProvider,
     create_default_tool_registry,
 )
-from redforge.application import ReadinessRegistry, ScanOrchestrator
+from redforge.application import (
+    ReadinessRegistry,
+    ScanInspector,
+    ScanOrchestrator,
+)
 from redforge.composition.profile import CompositionProfile
 from redforge.observability import (
     DiagnosticEventSink,
@@ -166,6 +170,34 @@ class ApplicationComposition:
 
     def create_orchestrator(self) -> ScanOrchestrator:
         """Construct fresh registries, readiness infrastructure, and service."""
+        capability_registry, factories, readiness = (
+            self._create_application_components()
+        )
+        return ScanOrchestrator(
+            capability_registry=capability_registry,
+            factory_registry=factories,
+            readiness_registry=readiness,
+            diagnostic_sink=self.diagnostic_sink,
+        )
+
+    def create_inspector(self) -> ScanInspector:
+        """Construct an execution-free planner and readiness inspector."""
+        capability_registry, factories, readiness = (
+            self._create_application_components()
+        )
+        return ScanInspector(
+            capability_registry=capability_registry,
+            factory_registry=factories,
+            readiness_registry=readiness,
+        )
+
+    def _create_application_components(
+        self,
+    ) -> tuple[
+        CapabilityRegistry,
+        CapabilityFactoryRegistry,
+        ReadinessRegistry,
+    ]:
         capability_registry = _profile_capability_registry(
             self.capability_ids
         )
@@ -181,15 +213,14 @@ class ApplicationComposition:
             if runner is None:
                 raise RuntimeError("tool-backed composition requires a runner")
             tool_probe = ToolRunnerReadinessProbe(runner)
-        return ScanOrchestrator(
-            capability_registry=capability_registry,
-            factory_registry=factories,
-            readiness_registry=ReadinessRegistry(
+        return (
+            capability_registry,
+            factories,
+            ReadinessRegistry(
                 tool_registry=tool_registry,
                 tool_probe=tool_probe,
                 provider_probes=self.provider_readiness_probes,
             ),
-            diagnostic_sink=self.diagnostic_sink,
         )
 
     def _capability_dependencies(self) -> CapabilityDependencies:

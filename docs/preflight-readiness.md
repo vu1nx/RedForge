@@ -139,3 +139,11 @@ failed-check counts. It does not emit each ready check or any executable path,
 provider exception, or configuration value. A readiness failure produces no
 build, execution, capability, or runtime-status event. See
 [Structured Observability](observability.md).
+
+The [dry-run command](dry-run.md) exposes this same preflight result without
+building a pipeline or creating `Context`. Requirements come only from factory
+metadata attached to capabilities in the prepared plan. For reconnaissance,
+that means four deduplicated executable checks—`subfinder`, `httpx`, `katana`,
+and `whatweb`—and no full-assessment vulnerability-provider check. Readiness
+resolves availability only; it does not execute a version command or contact a
+target.

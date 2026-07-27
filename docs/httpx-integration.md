@@ -106,8 +106,8 @@ discarded as malformed.
 The approved scope is built only from the input hostnames and their resolved
 addresses. A parsed endpoint is accepted only when its normalized URL hostname
 matches one approved identity exactly. Suffix matching is never used, so an
-input of `api.example.com` does not authorize `notexample.com` or
-`api.example.com.attacker.test`.
+input of `api.authorized.example` does not authorize `notauthorized.example` or
+`api.authorized.example.attacker.test`.
 
 Redirect following is disabled by default. A bounded relative or credential-
 free HTTP(S) location may be retained as metadata, but it is never converted

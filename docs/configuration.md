@@ -140,3 +140,9 @@ the loader protects against every malicious filesystem condition.
 
 See the safe reusable example at
 [`examples/redforge.toml`](../examples/redforge.toml).
+
+`--dry-run` does not alter configuration precedence or schema. The CLI first
+loads and resolves the same typed configuration, validates the canonical
+target, and only then asks composition for an execution-free inspection.
+Configuration failure therefore occurs before PATH inspection, planning
+readiness, runtime state, or tool work. See [Dry Run](dry-run.md).

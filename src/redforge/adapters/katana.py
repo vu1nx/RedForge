@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from ipaddress import IPv6Address, ip_address
 from typing import cast
@@ -346,6 +347,15 @@ class KatanaWebCrawlProvider:
         stdin = "".join(f"{seed}\n" for seed in prepared.seeds)
         if len(stdin.encode("utf-8")) > _MAX_STDIN_BYTES:
             raise ValueError("Katana target input exceeds the supported limit")
+        exact_scope_arguments = (
+            (
+                "-crawl-scope",
+                rf"^{re.escape(self._exact_target.value)}(?:/|$)",
+                "-disable-redirects",
+            )
+            if self._exact_target is not None
+            else ()
+        )
         arguments = (
             "-jsonl",
             "-silent",
@@ -369,6 +379,7 @@ class KatanaWebCrawlProvider:
             str(self._config.rate_limit_per_second),
             "-max-response-size",
             str(self._config.max_response_bytes),
+            *exact_scope_arguments,
             "-field-scope",
             "fqdn",
         )

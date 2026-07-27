@@ -71,7 +71,8 @@ resolved address, scheme, and port. Only `lab.redforge.test`,
 `127.0.0.1`, `http`, and `8080` are valid for this configuration. Output
 evidence from another origin, including a redirect, is rejected. HTTPX is
 configured not to follow redirects, Katana receives one exact seed, and WhatWeb
-receives one exact base target. No port 80, port 443, HTTPS URL, additional
+receives one exact base target. Katana also receives an escaped exact-origin
+crawl scope and an explicit redirect-disable flag. No port 80, port 443, HTTPS URL, additional
 hostname, or additional address is synthesized.
 
 This profile does not weaken the normal authorization and preflight gates. It

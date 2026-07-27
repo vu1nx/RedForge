@@ -159,6 +159,11 @@ def test_external_adapters_receive_only_the_exact_origin() -> None:
     )
     assert runner.invocations[0].stdin == f"{_URL}\n"
     assert runner.invocations[1].stdin == f"{_URL}\n"
+    assert "-disable-redirects" in runner.invocations[1].arguments
+    scope_index = runner.invocations[1].arguments.index("-crawl-scope")
+    assert runner.invocations[1].arguments[scope_index + 1] == (
+        r"^http://lab\.redforge\.test:8080(?:/|$)"
+    )
     assert runner.invocations[2].arguments[-1] == _URL
     serialized = repr(runner.invocations)
     assert "https://" not in serialized

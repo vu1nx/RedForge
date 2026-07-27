@@ -33,6 +33,13 @@ Profiles are explicit `CompositionProfile` enum values. A validated
 never parses files. There is no auto-detection, environment lookup,
 configuration-file discovery, or mutable global default.
 
+The additional `local_smoke` profile is an explicit constrained composition
+for one loopback HTTP origin. It injects network-free seed discovery and static
+host resolution and gives the existing HTTPX, Katana, and WhatWeb adapters one
+immutable exact-origin policy. Production `reconnaissance` composition remains
+Subfinder-backed and unchanged. See
+[Controlled Local Smoke Test](local-smoke-test.md).
+
 `reconnaissance` registers only:
 
 ```text

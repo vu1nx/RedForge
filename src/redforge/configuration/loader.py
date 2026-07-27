@@ -42,7 +42,7 @@ _LIMIT_FIELDS = frozenset(
         "overall_timeout_seconds",
     )
 )
-_COMPOSITION_FIELDS = frozenset(("profile",))
+_COMPOSITION_FIELDS = frozenset(("expected_ip", "profile"))
 _OUTPUT_FIELDS = frozenset(("format",))
 _OBSERVABILITY_FIELDS = frozenset(("level",))
 
@@ -166,15 +166,26 @@ def _build_configuration(raw: dict[str, object]) -> RedForgeConfiguration:
         ),
         limits=limit_configuration,
     )
-    composition = CompositionConfiguration(
-        profile=_enum(
-            composition_raw,
-            "profile",
-            CompositionProfile,
-            defaults.composition.profile,
-            "composition.profile",
+    try:
+        composition = CompositionConfiguration(
+            profile=_enum(
+                composition_raw,
+                "profile",
+                CompositionProfile,
+                defaults.composition.profile,
+                "composition.profile",
+            ),
+            expected_ip=_optional_string(
+                composition_raw,
+                "expected_ip",
+                "composition.expected_ip",
+            ),
         )
-    )
+    except (TypeError, ValueError):
+        raise ConfigurationValidationError(
+            ConfigurationReasonCode.VALUE_INVALID,
+            "configuration value is invalid",
+        ) from None
     output = OutputConfiguration(
         format=_enum(
             output_raw,
@@ -263,6 +274,19 @@ def _boolean(
 ) -> bool:
     value = raw.get(key, default)
     if not isinstance(value, bool):
+        _invalid(path)
+    return value
+
+
+def _optional_string(
+    raw: dict[str, object],
+    key: str,
+    path: str,
+) -> str | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
         _invalid(path)
     return value
 

@@ -11,6 +11,7 @@ from redforge.domain.endpoint import Endpoint
 from redforge.domain.host import Host
 from redforge.domain.hostname import normalize_dns_hostname
 from redforge.domain.http_probe import normalize_http_url
+from redforge.domain.scan_scope import ExactNetworkTarget
 from redforge.sdk.tool import (
     ToolDefinition,
     ToolExecutionResult,
@@ -129,9 +130,29 @@ def _serialized_host(value: str) -> str:
     return f"[{address}]" if isinstance(address, IPv6Address) else str(address)
 
 
-def _prepare_seeds(hosts: tuple[Host, ...]) -> _PreparedSeeds:
+def _prepare_seeds(
+    hosts: tuple[Host, ...],
+    exact_target: ExactNetworkTarget | None = None,
+) -> _PreparedSeeds:
     if not isinstance(cast(object, hosts), tuple):
         raise TypeError("web crawl hosts must be an immutable tuple")
+    if exact_target is not None:
+        if len(hosts) != 1:
+            raise ValueError("web crawl input differs from the exact target")
+        host = hosts[0]
+        if not isinstance(cast(object, host), Host):
+            raise TypeError("web crawl input contains an invalid host")
+        addresses = tuple(str(ip_address(item.value)) for item in host.addresses)
+        if (
+            host.hostname != exact_target.hostname
+            or addresses != (exact_target.expected_ip,)
+        ):
+            raise ValueError("web crawl input differs from the exact target")
+        return _PreparedSeeds(
+            (exact_target.value,),
+            frozenset((exact_target.hostname, exact_target.expected_ip)),
+        )
+
     seeds: set[str] = set()
     approved: set[str] = set()
     for host in hosts:
@@ -190,10 +211,20 @@ def _record_url(record: dict[object, object]) -> str:
     return endpoint
 
 
-def _url_to_endpoint(url: str, approved_hosts: frozenset[str]) -> Endpoint | None:
+def _url_to_endpoint(
+    url: str,
+    approved_hosts: frozenset[str],
+    exact_target: ExactNetworkTarget | None = None,
+) -> Endpoint | None:
     if not isinstance(cast(object, url), str) or len(url) > _MAX_URL_LENGTH:
         raise ValueError("Katana URL is invalid")
     normalized = normalize_http_url(url)
+    if exact_target is not None and (
+        normalized.scheme != exact_target.scheme
+        or normalized.hostname != exact_target.hostname
+        or normalized.port != exact_target.port
+    ):
+        return None
     if normalized.hostname not in approved_hosts:
         return None
     parsed = urlsplit(normalized.value)
@@ -215,6 +246,7 @@ def _parse_jsonl(
     approved_hosts: frozenset[str],
     *,
     discard_unterminated_final_line: bool,
+    exact_target: ExactNetworkTarget | None = None,
 ) -> _ParseSummary:
     endpoints: dict[tuple[str, str, int, str], Endpoint] = {}
     malformed = 0
@@ -245,6 +277,7 @@ def _parse_jsonl(
             endpoint = _url_to_endpoint(
                 _record_url(cast(dict[object, object], parsed)),
                 approved_hosts,
+                exact_target,
             )
         except (TypeError, ValueError):
             malformed += 1
@@ -280,6 +313,7 @@ class KatanaWebCrawlProvider:
         runner: ToolRunner,
         definition: ToolDefinition = KATANA_TOOL,
         config: KatanaConfig | None = None,
+        exact_target: ExactNetworkTarget | None = None,
     ) -> None:
         if not isinstance(cast(object, definition), ToolDefinition):
             raise TypeError("Katana provider requires a ToolDefinition")
@@ -288,6 +322,11 @@ class KatanaWebCrawlProvider:
         self._runner = runner
         self._definition = definition
         self._config = config or KatanaConfig()
+        if exact_target is not None and not isinstance(
+            cast(object, exact_target), ExactNetworkTarget
+        ):
+            raise TypeError("Katana exact target is invalid")
+        self._exact_target = exact_target
 
     @property
     def definition(self) -> ToolDefinition:
@@ -301,7 +340,7 @@ class KatanaWebCrawlProvider:
 
     def build_invocation(self, hosts: tuple[Host, ...]) -> ToolInvocation:
         """Return deterministic safe argv and bounded newline-delimited stdin."""
-        prepared = _prepare_seeds(hosts)
+        prepared = _prepare_seeds(hosts, self._exact_target)
         if not prepared.seeds:
             raise ValueError("Katana invocation requires at least one seed")
         stdin = "".join(f"{seed}\n" for seed in prepared.seeds)
@@ -343,7 +382,7 @@ class KatanaWebCrawlProvider:
     def crawl(self, hosts: tuple[Host, ...]) -> WebCrawlProviderResult:
         """Run Katana once for approved responsive hosts."""
         try:
-            prepared = _prepare_seeds(hosts)
+            prepared = _prepare_seeds(hosts, self._exact_target)
             if not prepared.seeds:
                 return WebCrawlProviderResult()
             invocation = self.build_invocation(hosts)
@@ -362,6 +401,7 @@ class KatanaWebCrawlProvider:
         return self._map_result(
             result,
             approved_hosts=prepared.approved_hosts,
+            exact_target=self._exact_target,
         )
 
     @staticmethod
@@ -369,6 +409,7 @@ class KatanaWebCrawlProvider:
         result: ToolExecutionResult,
         *,
         approved_hosts: frozenset[str],
+        exact_target: ExactNetworkTarget | None = None,
     ) -> WebCrawlProviderResult:
         if (
             not isinstance(cast(object, result), ToolExecutionResult)
@@ -401,6 +442,7 @@ class KatanaWebCrawlProvider:
                 result.status is ToolExecutionStatus.TIMEOUT
                 or result.truncated
             ),
+            exact_target=exact_target,
         )
         if result.status is ToolExecutionStatus.TIMEOUT:
             if parsed.endpoints:

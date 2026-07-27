@@ -120,3 +120,13 @@ capability IDs, required tool/provider IDs, and sanitized readiness results.
 bounded fields. Ready inspection exits 0; non-ready inspection exits 3.
 Commands, executable paths, environment values, evidence, and raw process
 output are never rendered. See [Dry Run](dry-run.md).
+
+## Controlled local smoke profile
+
+The `local_smoke` composition accepts a complete, explicit origin such as
+`http://lab.redforge.test:8080` and requires
+`composition.expected_ip = "127.0.0.1"`. It preserves the scheme and port
+through discovery, probing, crawling, and technology detection. See
+[Controlled Local Smoke Test](local-smoke-test.md). This profile never invokes
+Subfinder; it does not bypass readiness inspection for HTTPX, Katana, or
+WhatWeb.

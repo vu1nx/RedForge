@@ -1449,3 +1449,22 @@ def test_no_tool_installation_automation_is_present() -> None:
         source = path.read_text(encoding="utf-8").lower()
         for value in forbidden:
             assert value not in source, path
+
+
+def test_local_smoke_seed_adapters_are_transport_free() -> None:
+    path = _SOURCE_ROOT / "adapters" / "local_smoke.py"
+    imports = _imports(path)
+    forbidden = (
+        "subprocess",
+        "socket",
+        "urllib",
+        "requests",
+        "httpx",
+        "redforge.adapters.tool_runner",
+    )
+
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in forbidden
+    )

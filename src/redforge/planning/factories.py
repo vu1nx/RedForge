@@ -28,6 +28,7 @@ from redforge.capabilities.vulnerability_intelligence import (
     VulnerabilityIntelligenceCapability,
 )
 from redforge.capabilities.web_crawl import WebCrawlCapability
+from redforge.domain.scan_scope import ExactNetworkTarget
 from redforge.planning.errors import (
     CapabilityDescriptorMismatchError,
     InvalidCapabilityFactoryError,
@@ -236,6 +237,7 @@ class CapabilityDependencies:
     technology_detector: TechnologyDetectionProvider | None = None
     vulnerability_provider: VulnerabilityProvider | None = None
     tool_runner: ToolRunner | None = None
+    exact_target: ExactNetworkTarget | None = None
 
 
 def create_default_factory_registry(
@@ -338,7 +340,8 @@ def create_default_factory_registry(
                     runner=(
                         configured.tool_runner
                         or LocalSubprocessToolRunner()
-                    )
+                    ),
+                    exact_target=configured.exact_target,
                 )
             )
         ),
@@ -357,7 +360,8 @@ def create_default_factory_registry(
                     runner=(
                         configured.tool_runner
                         or LocalSubprocessToolRunner()
-                    )
+                    ),
+                    exact_target=configured.exact_target,
                 )
             )
         ),
@@ -376,7 +380,8 @@ def create_default_factory_registry(
                     runner=(
                         configured.tool_runner
                         or LocalSubprocessToolRunner()
-                    )
+                    ),
+                    exact_target=configured.exact_target,
                 )
             )
         ),

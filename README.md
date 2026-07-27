@@ -483,6 +483,11 @@ or implicit file discovery. See
 [Typed Configuration](docs/configuration.md) and
 [Minimal CLI](docs/cli.md).
 
+An isolated [Controlled Local Smoke Test](docs/local-smoke-test.md) profile
+preserves one exact loopback HTTP origin, uses network-free seed discovery and
+static resolution, and fail-closes HTTPX, Katana, and WhatWeb to that origin.
+It remains separate from production Subfinder-backed reconnaissance.
+
 Structured lifecycle diagnostics are silent by default. An explicit log level
 emits bounded JSON events to stderr without changing the human summary or the
 single JSON outcome on stdout. Diagnostics contain no evidence, process

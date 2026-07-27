@@ -8,3 +8,4 @@ class CompositionProfile(StrEnum):
 
     RECONNAISSANCE = "reconnaissance"
     FULL_ASSESSMENT = "full_assessment"
+    LOCAL_SMOKE = "local_smoke"

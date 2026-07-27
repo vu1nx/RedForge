@@ -31,6 +31,10 @@ from redforge.adapters.katana import (
     WebCrawlAdapterResult,
     WebCrawler,
 )
+from redforge.adapters.local_smoke import (
+    LocalSeedSubdomainProvider,
+    LocalStaticHostResolver,
+)
 from redforge.adapters.nvd import NvdAdapter, VulnerabilityProvider
 from redforge.adapters.readiness import ToolRunnerReadinessProbe
 from redforge.adapters.subfinder import (
@@ -76,6 +80,8 @@ __all__ = [
     "KatanaConfig",
     "KatanaWebCrawlProvider",
     "LocalSubprocessToolRunner",
+    "LocalSeedSubdomainProvider",
+    "LocalStaticHostResolver",
     "NvdAdapter",
     "SubdomainDiscoveryResult",
     "SubdomainDiscoveryStatus",

@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from redforge.domain.host import Host
 from redforge.domain.hostname import normalize_dns_hostname
 from redforge.domain.http_probe import HttpProbeEndpoint, normalize_http_url
+from redforge.domain.scan_scope import ExactNetworkTarget
 from redforge.sdk.http_probe import (
     HttpProbeProvider,
     HttpProbeProviderResult,
@@ -110,7 +111,10 @@ def _host_sort_key(host: Host) -> tuple[object, ...]:
     )
 
 
-def _prepare_targets(hosts: tuple[Host, ...]) -> _PreparedTargets:
+def _prepare_targets(
+    hosts: tuple[Host, ...],
+    exact_target: ExactNetworkTarget | None = None,
+) -> _PreparedTargets:
     if not isinstance(cast(object, hosts), tuple):
         raise TypeError("HTTP probe hosts must be an immutable tuple")
     normalized_hosts: list[Host] = []
@@ -132,6 +136,24 @@ def _prepare_targets(hosts: tuple[Host, ...]) -> _PreparedTargets:
                 operating_system=host.operating_system,
                 description=host.description,
             )
+        )
+
+    if exact_target is not None:
+        if len(normalized_hosts) != 1:
+            raise ValueError("HTTP probe input differs from the exact target")
+        host = normalized_hosts[0]
+        addresses = tuple(str(ip_address(item.value)) for item in host.addresses)
+        if (
+            host.hostname != exact_target.hostname
+            or addresses != (exact_target.expected_ip,)
+        ):
+            raise ValueError("HTTP probe input differs from the exact target")
+        return _PreparedTargets(
+            (exact_target.value,),
+            {
+                exact_target.hostname: host,
+                exact_target.expected_ip: host,
+            },
         )
 
     aliases: dict[str, Host] = {}
@@ -220,6 +242,7 @@ def _response_time(value: object) -> float | None:
 def _record_endpoint(
     record: dict[object, object],
     hosts_by_alias: dict[str, Host],
+    exact_target: ExactNetworkTarget | None = None,
 ) -> tuple[HttpProbeEndpoint, Host] | None:
     if record.get("failed") is True:
         raise ValueError("failed HTTPX record")
@@ -228,6 +251,12 @@ def _record_endpoint(
     if not isinstance(url, str):
         raise ValueError("HTTPX record URL is invalid")
     normalized = normalize_http_url(url)
+    if exact_target is not None and (
+        normalized.scheme != exact_target.scheme
+        or normalized.hostname != exact_target.hostname
+        or normalized.port != exact_target.port
+    ):
+        return None
     if normalized.hostname not in hosts_by_alias:
         return None
     if (
@@ -252,10 +281,27 @@ def _record_endpoint(
         if not isinstance(raw_ip, str):
             raise ValueError("HTTPX record IP is invalid")
         canonical_ip = str(ip_address(raw_ip))
+    if (
+        exact_target is not None
+        and canonical_ip != exact_target.expected_ip
+    ):
+        return None
 
     location = _redirect_location(
         _optional_record_text(record, "location", maximum_length=2048)
     )
+    if (
+        exact_target is not None
+        and location is not None
+        and not location.startswith("/")
+    ):
+        redirect = normalize_http_url(location)
+        if (
+            redirect.scheme != exact_target.scheme
+            or redirect.hostname != exact_target.hostname
+            or redirect.port != exact_target.port
+        ):
+            return None
     endpoint = HttpProbeEndpoint(
         url=normalized.value,
         scheme=normalized.scheme,
@@ -281,6 +327,7 @@ def _parse_jsonl(
     hosts_by_alias: dict[str, Host],
     *,
     discard_unterminated_final_line: bool,
+    exact_target: ExactNetworkTarget | None = None,
 ) -> _ParseSummary:
     endpoints: dict[tuple[str, str, int], HttpProbeEndpoint] = {}
     responsive_hosts: set[Host] = set()
@@ -310,6 +357,7 @@ def _parse_jsonl(
             converted = _record_endpoint(
                 cast(dict[object, object], parsed),
                 hosts_by_alias,
+                exact_target,
             )
         except (TypeError, ValueError):
             malformed += 1
@@ -342,6 +390,7 @@ class HttpxProbeProvider:
         runner: ToolRunner,
         definition: ToolDefinition = HTTPX_TOOL,
         config: HttpxConfig | None = None,
+        exact_target: ExactNetworkTarget | None = None,
     ) -> None:
         if not isinstance(cast(object, definition), ToolDefinition):
             raise TypeError("HTTPX provider requires a ToolDefinition")
@@ -350,6 +399,11 @@ class HttpxProbeProvider:
         self._runner = runner
         self._definition = definition
         self._config = config or HttpxConfig()
+        if exact_target is not None and not isinstance(
+            cast(object, exact_target), ExactNetworkTarget
+        ):
+            raise TypeError("HTTPX exact target is invalid")
+        self._exact_target = exact_target
 
     @property
     def definition(self) -> ToolDefinition:
@@ -363,7 +417,7 @@ class HttpxProbeProvider:
 
     def build_invocation(self, hosts: tuple[Host, ...]) -> ToolInvocation:
         """Return deterministic literal argv and newline-delimited stdin."""
-        prepared = _prepare_targets(hosts)
+        prepared = _prepare_targets(hosts, self._exact_target)
         if not prepared.targets:
             raise ValueError("HTTPX invocation requires at least one target")
         stdin = "".join(f"{target}\n" for target in prepared.targets)
@@ -406,7 +460,7 @@ class HttpxProbeProvider:
     def probe(self, hosts: tuple[Host, ...]) -> HttpProbeProviderResult:
         """Run HTTPX once for approved resolved hosts."""
         try:
-            prepared = _prepare_targets(hosts)
+            prepared = _prepare_targets(hosts, self._exact_target)
             if not prepared.targets:
                 return HttpProbeProviderResult()
             invocation = self.build_invocation(hosts)
@@ -416,13 +470,18 @@ class HttpxProbeProvider:
                 message="HTTP probe input is invalid.",
             )
         result = self._runner.run(self._definition, invocation)
-        return self._map_result(result, hosts_by_alias=prepared.hosts_by_alias)
+        return self._map_result(
+            result,
+            hosts_by_alias=prepared.hosts_by_alias,
+            exact_target=self._exact_target,
+        )
 
     @staticmethod
     def _map_result(
         result: ToolExecutionResult,
         *,
         hosts_by_alias: dict[str, Host],
+        exact_target: ExactNetworkTarget | None = None,
     ) -> HttpProbeProviderResult:
         if result.status is ToolExecutionStatus.NOT_FOUND:
             return HttpProbeProviderResult(
@@ -447,6 +506,7 @@ class HttpxProbeProvider:
                 result.status is ToolExecutionStatus.TIMEOUT
                 or result.truncated
             ),
+            exact_target=exact_target,
         )
         if result.status is ToolExecutionStatus.TIMEOUT:
             if parsed.endpoints:

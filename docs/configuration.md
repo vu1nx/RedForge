@@ -80,9 +80,10 @@ migration.
 ## Values and defaults
 
 Supported scan presets are `reconnaissance` and `full`. Supported composition
-profiles are `reconnaissance` and `full_assessment`. Supported output formats
-are `human` and `json`. Supported observability levels are `debug`, `info`,
-`warning`, `error`, and `off`.
+profiles are `reconnaissance`, `full_assessment`, and the isolated
+`local_smoke` profile. Supported output formats are `human` and `json`.
+Supported observability levels are `debug`, `info`, `warning`, `error`, and
+`off`.
 
 The defaults preserve the no-file CLI contract:
 
@@ -102,6 +103,11 @@ The composition profile must support the scan preset. A full composition can
 run reconnaissance, but reconnaissance composition cannot run a full scan.
 Selecting a valid full configuration does not invent a vulnerability provider:
 composition succeeds and preflight reports that provider as unavailable.
+
+`local_smoke` supports only the reconnaissance preset and requires an explicit
+loopback `composition.expected_ip`. Its CLI target must be a complete HTTP
+origin with an explicit port. `expected_ip` is rejected for every other
+profile. See [Controlled Local Smoke Test](local-smoke-test.md).
 
 ## CLI precedence
 

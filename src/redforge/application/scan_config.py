@@ -8,7 +8,11 @@ from redforge.application.errors import (
     ScanConfigurationError,
     ScanPreparationError,
 )
-from redforge.domain.scan_scope import ScanScope, ScanTarget
+from redforge.domain.scan_scope import (
+    ExactNetworkTarget,
+    ScanScope,
+    ScanTarget,
+)
 from redforge.planning.errors import PlanningError
 from redforge.planning.models import ExecutionPlan
 from redforge.planning.planner import ExecutionPlanner
@@ -140,6 +144,45 @@ class ScanConfig:
         return cls(
             scope=ScanScope(_target(target)),
             requested_outputs=(PipelineStateKey.RISK_INTELLIGENCE,),
+            limits=limits or ScanLimits(),
+            disabled_capabilities=disabled_capabilities,
+            allow_partial_results=allow_partial_results,
+        )
+
+    @classmethod
+    def for_local_smoke(
+        cls,
+        target: ExactNetworkTarget | str,
+        *,
+        expected_ip: str | None = None,
+        limits: ScanLimits | None = None,
+        disabled_capabilities: tuple[CapabilityId, ...] = (),
+        allow_partial_results: bool = False,
+    ) -> "ScanConfig":
+        """Request reconnaissance for one explicit authorized HTTP origin."""
+        if isinstance(target, ExactNetworkTarget):
+            if expected_ip is not None:
+                raise ScanConfigurationError(
+                    "expected IP conflicts with typed target"
+                )
+            exact = target
+        else:
+            if expected_ip is None:
+                raise ScanConfigurationError(
+                    "local smoke target requires an expected IP"
+                )
+            try:
+                exact = ExactNetworkTarget(
+                    target,
+                    expected_ip=expected_ip,
+                )
+            except (TypeError, ValueError):
+                raise ScanConfigurationError(
+                    "scan target is invalid"
+                ) from None
+        return cls(
+            scope=ScanScope(exact),
+            requested_outputs=(PipelineStateKey.TECHNOLOGIES,),
             limits=limits or ScanLimits(),
             disabled_capabilities=disabled_capabilities,
             allow_partial_results=allow_partial_results,

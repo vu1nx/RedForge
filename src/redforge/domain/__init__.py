@@ -29,7 +29,7 @@ from redforge.domain.risk_intelligence import (
     risk_assessment_identifier,
     risk_level_for_score,
 )
-from redforge.domain.scan_scope import ScanScope, ScanTarget
+from redforge.domain.scan_scope import ExactNetworkTarget, ScanScope, ScanTarget
 from redforge.domain.service import Service
 from redforge.domain.target import Target
 from redforge.domain.technology import Technology
@@ -46,6 +46,7 @@ __all__ = [
     "AssetAssociation",
     "AssetIntelligence",
     "Evidence",
+    "ExactNetworkTarget",
     "Finding",
     "Host",
     "HostAddress",

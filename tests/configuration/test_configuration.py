@@ -351,6 +351,65 @@ def test_translation_applies_overrides_without_file_or_composition_work() -> Non
     assert resolved.observability_level is ObservabilityLevel.DEBUG
 
 
+def test_local_smoke_configuration_preserves_exact_origin(
+    tmp_path: Path,
+) -> None:
+    configuration = load_configuration(
+        _write(
+            tmp_path,
+            """
+schema_version = 1
+[composition]
+profile = "local_smoke"
+expected_ip = "127.0.0.1"
+""",
+        )
+    )
+
+    resolved = resolve_configuration(
+        target="http://lab.redforge.test:8080",
+        configuration=configuration,
+    )
+    target = resolved.scan_config.scope.root
+
+    assert resolved.composition_profile is CompositionProfile.LOCAL_SMOKE
+    assert target.value == "http://lab.redforge.test:8080"
+    assert target.hostname == "lab.redforge.test"  # type: ignore[union-attr]
+    assert target.port == 8080  # type: ignore[union-attr]
+    assert target.scheme == "http"  # type: ignore[union-attr]
+    assert target.expected_ip == "127.0.0.1"  # type: ignore[union-attr]
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        """
+schema_version = 1
+[composition]
+profile = "local_smoke"
+""",
+        """
+schema_version = 1
+[composition]
+profile = "local_smoke"
+expected_ip = "192.0.2.1"
+""",
+        """
+schema_version = 1
+[composition]
+profile = "reconnaissance"
+expected_ip = "127.0.0.1"
+""",
+    ),
+)
+def test_local_smoke_expected_ip_is_explicit_and_loopback_only(
+    tmp_path: Path,
+    text: str,
+) -> None:
+    with pytest.raises(ConfigurationValidationError):
+        load_configuration(_write(tmp_path, text))
+
+
 @pytest.mark.parametrize("level", tuple(ObservabilityLevel))
 def test_all_observability_levels_load_without_side_effects(
     tmp_path: Path,

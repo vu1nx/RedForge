@@ -5,6 +5,8 @@ from typing import cast
 
 from redforge.adapters import (
     HostResolver,
+    LocalSeedSubdomainProvider,
+    LocalStaticHostResolver,
     LocalSubprocessToolRunner,
     ToolRunnerReadinessProbe,
     VulnerabilityProvider,
@@ -16,6 +18,7 @@ from redforge.application import (
     ScanOrchestrator,
 )
 from redforge.composition.profile import CompositionProfile
+from redforge.domain.scan_scope import ExactNetworkTarget
 from redforge.observability import (
     DiagnosticEventSink,
     NullDiagnosticEventSink,
@@ -116,6 +119,10 @@ class ApplicationComposition:
         repr=False,
         compare=False,
     )
+    exact_target: ExactNetworkTarget | None = field(
+        default=None,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(cast(object, self.profile), CompositionProfile):
@@ -160,11 +167,41 @@ class ApplicationComposition:
             DiagnosticEventSink,
         ):
             raise TypeError("diagnostic sink is invalid")
+        if self.profile is CompositionProfile.LOCAL_SMOKE:
+            if not isinstance(
+                cast(object, self.exact_target), ExactNetworkTarget
+            ):
+                raise TypeError("local smoke composition requires an exact target")
+            target = cast(ExactNetworkTarget, self.exact_target)
+            if (
+                target.scheme != "http"
+                or not target.hostname.endswith(".test")
+            ):
+                raise ValueError("local smoke target must be an HTTP .test origin")
+            if any(
+                provider is not None
+                for provider in (
+                    self.providers.subdomain_provider,
+                    self.providers.host_resolver,
+                    self.providers.http_transport,
+                    self.providers.web_crawler,
+                    self.providers.technology_detector,
+                    self.providers.vulnerability_provider,
+                )
+            ):
+                raise ValueError(
+                    "local smoke composition owns its constrained providers"
+                )
+        elif self.exact_target is not None:
+            raise ValueError("exact target is supported only by local smoke")
 
     @property
     def capability_ids(self) -> tuple[CapabilityId, ...]:
         """Return the immutable capability set owned by this profile."""
-        if self.profile is CompositionProfile.RECONNAISSANCE:
+        if self.profile in {
+            CompositionProfile.RECONNAISSANCE,
+            CompositionProfile.LOCAL_SMOKE,
+        }:
             return _RECONNAISSANCE_CAPABILITIES
         return _FULL_ASSESSMENT_CAPABILITIES
 
@@ -228,6 +265,14 @@ class ApplicationComposition:
         runner = self.tool_runner
         if runner is None and self._requires_tool_runner():
             runner = LocalSubprocessToolRunner()
+        if self.profile is CompositionProfile.LOCAL_SMOKE:
+            target = cast(ExactNetworkTarget, self.exact_target)
+            return CapabilityDependencies(
+                subdomain_provider=LocalSeedSubdomainProvider(target),
+                host_resolver=LocalStaticHostResolver(target),
+                tool_runner=runner,
+                exact_target=target,
+            )
         return CapabilityDependencies(
             subdomain_provider=providers.subdomain_provider,
             host_resolver=providers.host_resolver,

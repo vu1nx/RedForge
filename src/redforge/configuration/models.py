@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from ipaddress import ip_address
 from typing import cast
 
 from redforge.application import ScanConfig, ScanConfigurationError, ScanLimits
@@ -97,10 +98,27 @@ class CompositionConfiguration:
     """Explicit composition profile selection."""
 
     profile: CompositionProfile = CompositionProfile.RECONNAISSANCE
+    expected_ip: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(cast(object, self.profile), CompositionProfile):
             raise TypeError("composition profile is invalid")
+        if self.profile is CompositionProfile.LOCAL_SMOKE:
+            try:
+                address = ip_address(cast(str, self.expected_ip))
+            except (TypeError, ValueError):
+                raise TypeError(
+                    "local smoke expected IP is invalid"
+                ) from None
+            if not address.is_loopback:
+                raise TypeError(
+                    "local smoke expected IP must be loopback"
+                )
+            object.__setattr__(self, "expected_ip", str(address))
+        elif self.expected_ip is not None:
+            raise TypeError(
+                "expected IP is supported only by local smoke composition"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,17 +220,26 @@ def resolve_configuration(
         else configuration.scan.allow_partial_results
     )
     limits = configuration.scan.limits.to_scan_limits()
-    constructor = (
-        ScanConfig.for_reconnaissance
-        if preset is ScanPreset.RECONNAISSANCE
-        else ScanConfig.for_full_assessment
-    )
-    return ResolvedConfiguration(
-        scan_config=constructor(
+    if profile is CompositionProfile.LOCAL_SMOKE:
+        scan_config = ScanConfig.for_local_smoke(
+            target,
+            expected_ip=configuration.composition.expected_ip,
+            limits=limits,
+            allow_partial_results=allow_partial,
+        )
+    else:
+        constructor = (
+            ScanConfig.for_reconnaissance
+            if preset is ScanPreset.RECONNAISSANCE
+            else ScanConfig.for_full_assessment
+        )
+        scan_config = constructor(
             target,
             limits=limits,
             allow_partial_results=allow_partial,
-        ),
+        )
+    return ResolvedConfiguration(
+        scan_config=scan_config,
         composition_profile=profile,
         output_format=output_override or configuration.output.format,
         scan_preset=preset,
@@ -230,7 +257,11 @@ def validate_profile_compatibility(
     """Reject only a full scan requested from a reconnaissance composition."""
     if (
         preset is ScanPreset.FULL
-        and profile is CompositionProfile.RECONNAISSANCE
+        and profile
+        in {
+            CompositionProfile.RECONNAISSANCE,
+            CompositionProfile.LOCAL_SMOKE,
+        }
     ):
         raise ConfigurationValidationError(
             ConfigurationReasonCode.PROFILE_INCOMPATIBLE,

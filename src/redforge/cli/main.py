@@ -41,6 +41,7 @@ from redforge.configuration import (
     load_configuration,
     resolve_configuration,
 )
+from redforge.domain.scan_scope import ExactNetworkTarget
 from redforge.observability import (
     DiagnosticEventSink,
     NullDiagnosticEventSink,
@@ -476,9 +477,15 @@ def main(
                 inspector_factory()
                 if inspector_factory is not None
                 else (
-                    composition_inspection_factory
-                    or _default_inspector_factory
-                )(resolved.composition_profile)
+                    composition_inspection_factory(
+                        resolved.composition_profile
+                    )
+                    if composition_inspection_factory is not None
+                    else _default_inspector_factory(
+                        resolved.composition_profile,
+                        config,
+                    )
+                )
             )
             inspection = inspection_service.inspect(config)
             exit_code = (
@@ -514,13 +521,21 @@ def main(
                 errors,
             )
         )
-        factory = (
-            orchestrator_factory
-            if orchestrator_factory is not None
-            else lambda: (
-                composition_factory or _default_orchestrator_factory
-            )(resolved.composition_profile, sink)
-        )
+        if orchestrator_factory is not None:
+            factory = orchestrator_factory
+        elif composition_factory is not None:
+            def factory() -> ScanExecutor:
+                return composition_factory(
+                    resolved.composition_profile,
+                    sink,
+                )
+        else:
+            def factory() -> ScanExecutor:
+                return _default_orchestrator_factory(
+                    resolved.composition_profile,
+                    sink,
+                    config,
+                )
         result = run_scan_command(
             config,
             orchestrator_factory=factory,
@@ -683,6 +698,7 @@ def _write_dry_run_json(
 def _default_orchestrator_factory(
     profile: CompositionProfile,
     diagnostic_sink: DiagnosticEventSink,
+    config: ScanConfig,
 ) -> ScanOrchestrator:
     """Import and construct production composition only when a scan is run."""
     from redforge.composition import ApplicationComposition
@@ -690,16 +706,29 @@ def _default_orchestrator_factory(
     return ApplicationComposition(
         profile,
         diagnostic_sink=diagnostic_sink,
+        exact_target=(
+            cast(ExactNetworkTarget, config.scope.root)
+            if profile is CompositionProfile.LOCAL_SMOKE
+            else None
+        ),
     ).create_orchestrator()
 
 
 def _default_inspector_factory(
     profile: CompositionProfile,
+    config: ScanConfig,
 ) -> ScanInspectionService:
     """Construct production inspection only for an explicit dry run."""
     from redforge.composition import ApplicationComposition
 
-    return ApplicationComposition(profile).create_inspector()
+    return ApplicationComposition(
+        profile,
+        exact_target=(
+            cast(ExactNetworkTarget, config.scope.root)
+            if profile is CompositionProfile.LOCAL_SMOKE
+            else None
+        ),
+    ).create_inspector()
 
 
 def _create_cli_diagnostic_sink(

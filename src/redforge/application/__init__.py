@@ -29,7 +29,11 @@ from redforge.application.scan_config import (
     prepare_scan,
 )
 from redforge.application.scan_limits import create_scan_limit_policy
-from redforge.domain.scan_scope import ScanScope, ScanTarget
+from redforge.domain.scan_scope import (
+    ExactNetworkTarget,
+    ScanScope,
+    ScanTarget,
+)
 from redforge.sdk.readiness import (
     ProviderReadinessProbe,
     ProviderRole,
@@ -47,6 +51,7 @@ from redforge.sdk.readiness import (
 
 __all__ = [
     "DisabledCapabilityError",
+    "ExactNetworkTarget",
     "PreparedScan",
     "PreflightResult",
     "ProviderReadinessProbe",

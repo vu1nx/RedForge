@@ -11,6 +11,7 @@ from typing import cast
 
 from redforge.domain.endpoint import Endpoint
 from redforge.domain.http_probe import normalize_http_url
+from redforge.domain.scan_scope import ExactNetworkTarget
 from redforge.domain.technology import Technology
 from redforge.sdk.technology_detection import (
     TechnologyDetectionProvider,
@@ -162,10 +163,27 @@ def _endpoint_url(endpoint: Endpoint) -> str:
 def _prepare_targets(
     endpoints: tuple[Endpoint, ...],
     config: WhatWebConfig,
+    exact_target: ExactNetworkTarget | None = None,
 ) -> _PreparedTargets:
     if not isinstance(cast(object, endpoints), tuple):
         raise TypeError("technology detection endpoints must be an immutable tuple")
-    targets = tuple(sorted({_endpoint_url(endpoint) for endpoint in endpoints}))
+    endpoint_targets = tuple(
+        sorted({_endpoint_url(endpoint) for endpoint in endpoints})
+    )
+    if exact_target is not None:
+        for target in endpoint_targets:
+            normalized = normalize_http_url(target)
+            if (
+                normalized.scheme != exact_target.scheme
+                or normalized.hostname != exact_target.hostname
+                or normalized.port != exact_target.port
+            ):
+                raise ValueError(
+                    "technology detection input differs from the exact target"
+                )
+        targets = (exact_target.value,) if endpoint_targets else ()
+    else:
+        targets = endpoint_targets
     if len(targets) > config.max_targets:
         raise ValueError("technology detection target count exceeds the limit")
     serialized_size = sum(len(target.encode("utf-8")) + 1 for target in targets)
@@ -369,6 +387,7 @@ class WhatWebTechnologyDetectionProvider:
         runner: ToolRunner,
         definition: ToolDefinition = WHATWEB_TOOL,
         config: WhatWebConfig | None = None,
+        exact_target: ExactNetworkTarget | None = None,
     ) -> None:
         if not isinstance(cast(object, definition), ToolDefinition):
             raise TypeError("WhatWeb provider requires a ToolDefinition")
@@ -377,6 +396,11 @@ class WhatWebTechnologyDetectionProvider:
         self._runner = runner
         self._definition = definition
         self._config = config or WhatWebConfig()
+        if exact_target is not None and not isinstance(
+            cast(object, exact_target), ExactNetworkTarget
+        ):
+            raise TypeError("WhatWeb exact target is invalid")
+        self._exact_target = exact_target
 
     @property
     def definition(self) -> ToolDefinition:
@@ -395,7 +419,11 @@ class WhatWebTechnologyDetectionProvider:
         output_path: Path,
     ) -> ToolInvocation:
         """Return one deterministic bounded batch invocation."""
-        prepared = _prepare_targets(endpoints, self._config)
+        prepared = _prepare_targets(
+            endpoints,
+            self._config,
+            self._exact_target,
+        )
         if not prepared.targets:
             raise ValueError("WhatWeb invocation requires at least one target")
         arguments = (
@@ -424,7 +452,11 @@ class WhatWebTechnologyDetectionProvider:
     ) -> TechnologyDetectionProviderResult:
         """Run WhatWeb once for the approved endpoint batch."""
         try:
-            prepared = _prepare_targets(endpoints, self._config)
+            prepared = _prepare_targets(
+                endpoints,
+                self._config,
+                self._exact_target,
+            )
         except (TypeError, ValueError):
             return TechnologyDetectionProviderResult(
                 status=TechnologyDetectionProviderStatus.ERROR,

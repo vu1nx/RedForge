@@ -411,3 +411,20 @@ def test_factory_registry_rejects_unknown_definition_alignment() -> None:
 
     with pytest.raises(CapabilityDescriptorMismatchError):
         factories.validate_against(definitions)
+
+
+def test_default_factory_registry_can_select_an_explicit_profile_subset() -> None:
+    selected = (
+        CapabilityId("host_resolution"),
+        CapabilityId("subdomain_discovery"),
+    )
+
+    registry = create_default_factory_registry(
+        enabled_capabilities=selected
+    )
+
+    assert registry.ids == selected
+    with pytest.raises(ValueError, match="unknown"):
+        create_default_factory_registry(
+            enabled_capabilities=(CapabilityId("unknown_capability"),)
+        )

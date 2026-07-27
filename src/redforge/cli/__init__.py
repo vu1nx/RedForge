@@ -7,13 +7,12 @@ from redforge.cli.json_output import (
 )
 from redforge.cli.main import (
     ExitCode,
-    OutputFormat,
-    ScanPreset,
     build_parser,
     main,
     render_preflight_result,
     render_scan_result,
 )
+from redforge.configuration import OutputFormat, ScanPreset
 
 __all__ = [
     "ExitCode",

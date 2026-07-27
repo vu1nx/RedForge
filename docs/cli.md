@@ -9,14 +9,17 @@ redforge scan authorized.example
 redforge scan authorized.example --preset reconnaissance
 redforge scan authorized.example --preset full --allow-partial-results
 redforge scan authorized.example --output json
+redforge scan authorized.example --config redforge.toml
+redforge scan authorized.example --log-level info
 python -m redforge.cli scan authorized.example
 ```
 
 Only scan systems you are explicitly authorized to assess.
 
 The CLI is an adapter over the application API. It validates the target through
-the canonical `ScanConfig` model, selects requested output presets, runs
-readiness preflight, and renders the immutable `ScanResult`.
+the canonical `ScanConfig` model, selects an explicit
+[composition profile](application-composition.md), delegates construction, and
+renders the immutable `ScanResult`.
 
 It does not contain scan-planning or execution business logic. It does not
 plan, build pipelines, execute capabilities, or inspect Context directly.
@@ -24,16 +27,36 @@ plan, build pipelines, execute capabilities, or inspect Context directly.
 ## Presets and safety defaults
 
 `reconnaissance` is the default preset and requests canonical technology
-evidence. `full` requests canonical risk intelligence. Full execution also
-requires the separately configured vulnerability provider and all tools in its
-dependency closure; the default local composition reports missing provider
-readiness honestly rather than fabricating one.
+evidence through the reconnaissance composition profile. `full` requests
+canonical risk intelligence through `full_assessment`. Full execution also
+requires a separately supplied vulnerability provider; the composition
+framework reports missing provider readiness honestly rather than fabricating
+one.
 
-Built-in `ScanLimits` defaults are always applied. This first CLI exposes no
-flags for increasing limits, timeouts, concurrency, tool arguments, providers,
-credentials, proxies, executable paths, retries, reports, or configuration
-files. Targets containing URL syntax, paths, credentials, wildcards, or IP
-literals are rejected by the canonical DNS-target validator.
+The CLI constructs no ToolRunner, tool or capability registry, readiness
+registry, probe, provider, or capability factory. Its lazy default factory asks
+`ApplicationComposition` for one profile-scoped `ScanOrchestrator`.
+
+Without a configuration file, built-in `ScanLimits` defaults are applied.
+One explicit schema-versioned TOML document may supply the scan preset,
+partial-result policy, limits, composition profile, and output format:
+
+```text
+redforge scan authorized.example --config redforge.toml
+```
+
+Only explicitly supplied `--preset`, `--allow-partial-results`, `--output`,
+and `--log-level` values override the file. Omitted parser options do not mask
+file values.
+`--config` may appear once; stdin, URLs, directories, discovery, environment
+overrides, and multi-file merging are unsupported. The target remains a
+required positional argument and is never read from configuration. See
+[Typed Configuration](configuration.md).
+
+The CLI exposes no flags for increasing limits, concurrency, tool arguments,
+providers, credentials, proxies, executable paths, retries, or reports.
+Targets containing URL syntax, paths, credentials, wildcards, or IP literals
+are rejected by the canonical DNS-target validator.
 
 `--allow-partial-results` changes acceptance only. It does not alter runtime
 status, dependencies, limits, or stop behavior.
@@ -49,6 +72,20 @@ the package version. See [Deterministic JSON Output](json-output.md).
 Neither mode contains raw evidence, subprocess output, environment values,
 credentials, temporary paths, or exception details.
 
+## Structured diagnostics
+
+Diagnostics are off by default. `--log-level
+debug|info|warning|error|off` selects the minimum typed severity and overrides
+the TOML `[observability]` level. There is no `-v`, progress mode, log file,
+environment override, root-logger configuration, or remote telemetry.
+
+When enabled, each bounded diagnostic event is one compact JSON record on
+stderr. Human scan summaries remain on stdout. With `--output json`, stdout
+still contains exactly one final machine-outcome document; diagnostic records
+never mix into it. Repeated in-process `main()` calls create isolated dedicated
+loggers without accumulating handlers. See
+[Structured Observability](observability.md).
+
 | Code | Meaning |
 | ---: | --- |
 | 0 | Scan result accepted |
@@ -58,8 +95,13 @@ credentials, temporary paths, or exception details.
 | 5 | Unexpected internal invariant failure |
 | 130 | Interrupted by the operator |
 
+Typed configuration failures use exit 2. Human mode emits a concise sanitized
+stderr message; explicitly selected JSON mode emits one error document to
+stdout with a stable `configuration_*` reason code. Argparse failures remain
+command-line usage errors.
+
 The CLI currently provides no JSON file output, evidence report export,
-interactive prompts, configuration-file loading, environment-driven
-configuration, persistence, retry, parallel execution, dynamic replanning, or
-cancellation of work already running inside a capability. It does not verify
-target ownership.
+interactive prompts, environment-driven or implicit configuration,
+persistence, retry, parallel execution, dynamic replanning, or cancellation
+of work already running inside a capability. It does not verify target
+ownership.

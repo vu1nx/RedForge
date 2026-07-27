@@ -26,6 +26,11 @@ from redforge.domain import (
     RiskIntelligence,
     Technology,
 )
+from redforge.observability import (
+    DiagnosticEvent,
+    DiagnosticEventSink,
+    DiagnosticEventType,
+)
 from redforge.planning import (
     BUILTIN_CAPABILITY_IDS,
     CapabilityDefinition,
@@ -223,7 +228,23 @@ class FakeVulnerabilities:
         )
 
 
-def _orchestrator(scenario: Scenario) -> ScanOrchestrator:
+class RecordingSink:
+    def __init__(self) -> None:
+        self._events: list[DiagnosticEvent] = []
+
+    def emit(self, event: DiagnosticEvent) -> None:
+        self._events.append(event)
+
+    @property
+    def events(self) -> tuple[DiagnosticEvent, ...]:
+        return tuple(self._events)
+
+
+def _orchestrator(
+    scenario: Scenario,
+    *,
+    diagnostic_sink: DiagnosticEventSink | None = None,
+) -> ScanOrchestrator:
     factories = create_default_factory_registry(
         dependencies=CapabilityDependencies(
             subdomain_provider=FakeSubdomains(scenario),
@@ -237,6 +258,7 @@ def _orchestrator(scenario: Scenario) -> ScanOrchestrator:
     return ScanOrchestrator(
         capability_registry=create_default_registry(),
         factory_registry=factories,
+        diagnostic_sink=diagnostic_sink,
     )
 
 
@@ -279,6 +301,98 @@ def test_reconnaissance_builds_and_executes_only_recon_closure() -> None:
     assert result.accepted
     assert not result.final_context.has(PipelineStateKey.ASSET_INTELLIGENCE)
     assert "vulnerability_search" not in scenario.calls
+
+
+def test_reconnaissance_diagnostic_lifecycle_order_is_deterministic() -> None:
+    sink = RecordingSink()
+
+    result = _orchestrator(
+        Scenario(),
+        diagnostic_sink=sink,
+    ).run(ScanConfig.for_reconnaissance("example.com"))
+
+    expected_capabilities: list[DiagnosticEventType] = []
+    for _ in RECON_ORDER:
+        expected_capabilities.extend(
+            (
+                DiagnosticEventType.CAPABILITY_STARTED,
+                DiagnosticEventType.CAPABILITY_COMPLETED,
+            )
+        )
+    assert tuple(event.event_type for event in sink.events) == (
+        DiagnosticEventType.SCAN_PREPARATION_STARTED,
+        DiagnosticEventType.SCAN_PREPARATION_COMPLETED,
+        DiagnosticEventType.SCAN_PREFLIGHT_STARTED,
+        DiagnosticEventType.SCAN_PREFLIGHT_COMPLETED,
+        DiagnosticEventType.SCAN_BUILD_STARTED,
+        DiagnosticEventType.SCAN_BUILD_COMPLETED,
+        DiagnosticEventType.SCAN_EXECUTION_STARTED,
+        *expected_capabilities,
+        DiagnosticEventType.SCAN_EXECUTION_COMPLETED,
+        DiagnosticEventType.SCAN_RESULT_CREATED,
+    )
+    capability_events = tuple(
+        event
+        for event in sink.events
+        if event.event_type is DiagnosticEventType.CAPABILITY_COMPLETED
+    )
+    assert tuple(
+        event.fields.capability_id for event in capability_events
+    ) == RECON_ORDER
+    assert result.runtime_status is Status.SUCCESS
+
+
+def test_partial_diagnostic_preserves_status_and_acceptance_separately() -> None:
+    sink = RecordingSink()
+
+    result = _orchestrator(
+        Scenario(mode="partial"),
+        diagnostic_sink=sink,
+    ).run(
+        ScanConfig.for_reconnaissance(
+            "example.com",
+            allow_partial_results=True,
+        )
+    )
+
+    partial = tuple(
+        event
+        for event in sink.events
+        if event.event_type is DiagnosticEventType.CAPABILITY_PARTIAL
+    )
+    assert len(partial) == 1
+    assert partial[0].fields.capability_id == "http_probe"
+    assert partial[0].fields.runtime_status == "PARTIAL"
+    created = sink.events[-1]
+    assert created.event_type is DiagnosticEventType.SCAN_RESULT_CREATED
+    assert created.fields.runtime_status == "PARTIAL"
+    assert created.fields.accepted is True
+    assert result.runtime_status is Status.PARTIAL
+    assert result.accepted
+
+
+def test_diagnostics_contain_no_target_evidence_or_runtime_internals() -> None:
+    sink = RecordingSink()
+
+    _orchestrator(
+        Scenario(),
+        diagnostic_sink=sink,
+    ).run(ScanConfig.for_reconnaissance("example.com"))
+
+    rendered = repr(sink.events).lower()
+    for forbidden in (
+        "example.com",
+        "app.example.com",
+        "192.0.2.10",
+        "nginx",
+        "stdout",
+        "stderr",
+        "environment",
+        "executable",
+        "context(",
+        "0x",
+    ):
+        assert forbidden not in rendered
 
 
 def test_clean_empty_scan_is_successful_and_skips_downstream_providers() -> None:
@@ -382,6 +496,40 @@ def test_reconnaissance_technology_limit_preserves_upstream_and_is_rejected(
     assert "vulnerability_search" not in scenario.calls
 
 
+def test_limit_diagnostic_precedes_terminal_capability_event() -> None:
+    sink = RecordingSink()
+
+    result = _orchestrator(
+        Scenario(mode="technology_limit"),
+        diagnostic_sink=sink,
+    ).run(
+        ScanConfig.for_reconnaissance(
+            "example.com",
+            limits=ScanLimits(max_technologies=1),
+        )
+    )
+
+    event_types = tuple(event.event_type for event in sink.events)
+    limit_position = event_types.index(
+        DiagnosticEventType.POLICY_LIMIT_EXCEEDED
+    )
+    assert event_types[limit_position - 1] is (
+        DiagnosticEventType.CAPABILITY_STARTED
+    )
+    assert event_types[limit_position + 1] is (
+        DiagnosticEventType.CAPABILITY_FAILED
+    )
+    assert event_types[-2:] == (
+        DiagnosticEventType.SCAN_EXECUTION_COMPLETED,
+        DiagnosticEventType.SCAN_RESULT_CREATED,
+    )
+    event = sink.events[limit_position]
+    assert event.fields.state_key == "TECHNOLOGIES"
+    assert event.fields.observed == 2
+    assert event.fields.allowed == 1
+    assert result.runtime_status is Status.FAILURE
+
+
 def test_full_crawl_limit_stops_technology_and_intelligence() -> None:
     scenario = Scenario(mode="crawl_limit")
     result = _orchestrator(scenario).run(
@@ -444,6 +592,40 @@ def test_orchestrator_deadline_before_first_step_returns_rejected_result(
     assert result.policy_violation == DeadlineViolation(
         DeadlinePhase.BEFORE_CAPABILITY
     )
+
+
+def test_deadline_diagnostic_contains_no_clock_values() -> None:
+    calls: dict[str, int] = {}
+    factories = CapabilityFactoryRegistry()
+    identity = CapabilityId("technology_source")
+    factories.register(
+        identity,
+        lambda: _counting_factory(identity, calls),
+    )
+    sink = RecordingSink()
+    orchestrator = _single_state_orchestrator(
+        factories,
+        clock=ScriptedClock((0, 1)),
+        diagnostic_sink=sink,
+    )
+
+    result = orchestrator.run(
+        ScanConfig.for_reconnaissance(
+            "example.com",
+            limits=ScanLimits(overall_timeout_seconds=1),
+        )
+    )
+
+    event_types = tuple(event.event_type for event in sink.events)
+    position = event_types.index(
+        DiagnosticEventType.POLICY_DEADLINE_EXCEEDED
+    )
+    assert event_types[position - 1] is DiagnosticEventType.CAPABILITY_STARTED
+    assert event_types[position + 1] is DiagnosticEventType.CAPABILITY_FAILED
+    assert sink.events[position].fields.policy_type == "deadline"
+    assert sink.events[position].fields.observed is None
+    assert sink.events[position].fields.allowed is None
+    assert result.runtime_status is Status.FAILURE
 
 
 @pytest.mark.parametrize(
@@ -545,6 +727,7 @@ def _single_state_orchestrator(
     factories: CapabilityFactoryRegistry,
     *,
     clock: ScriptedClock | None = None,
+    diagnostic_sink: DiagnosticEventSink | None = None,
 ) -> ScanOrchestrator:
     registry = CapabilityRegistry(
         (
@@ -561,6 +744,7 @@ def _single_state_orchestrator(
         capability_registry=registry,
         factory_registry=factories,
         clock=clock,
+        diagnostic_sink=diagnostic_sink,
     )
 
 
@@ -587,6 +771,60 @@ def test_missing_factory_fails_preflight_before_context_or_scan_result(
     assert not caught.value.result.ready
     assert context_calls == 0
     assert "example.com" not in str(caught.value)
+
+
+def test_preflight_failure_emits_only_preparation_and_preflight_events() -> None:
+    sink = RecordingSink()
+
+    with pytest.raises(ScanPreflightError):
+        _single_state_orchestrator(
+            CapabilityFactoryRegistry(),
+            diagnostic_sink=sink,
+        ).run(ScanConfig.for_reconnaissance("example.com"))
+
+    assert tuple(event.event_type for event in sink.events) == (
+        DiagnosticEventType.SCAN_PREPARATION_STARTED,
+        DiagnosticEventType.SCAN_PREPARATION_COMPLETED,
+        DiagnosticEventType.SCAN_PREFLIGHT_STARTED,
+        DiagnosticEventType.SCAN_PREFLIGHT_FAILED,
+    )
+    failure = sink.events[-1]
+    assert failure.fields.ready is False
+    assert failure.fields.preflight_checks_total == 1
+    assert failure.fields.preflight_checks_failed == 1
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_status", "expected_accepted", "expected_calls"),
+    (
+        ("success", Status.SUCCESS, True, 19),
+        ("failure", Status.FAILURE, False, 17),
+    ),
+)
+def test_failing_diagnostic_sink_does_not_change_scan_result(
+    mode: str,
+    expected_status: Status,
+    expected_accepted: bool,
+    expected_calls: int,
+) -> None:
+    class RaisingSink:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def emit(self, event: DiagnosticEvent) -> None:
+            _ = event
+            self.calls += 1
+            raise RuntimeError("private sink failure")
+
+    sink = RaisingSink()
+    result = _orchestrator(
+        Scenario(mode=mode),
+        diagnostic_sink=sink,
+    ).run(ScanConfig.for_reconnaissance("example.com"))
+
+    assert result.runtime_status is expected_status
+    assert result.accepted is expected_accepted
+    assert sink.calls == expected_calls
 
 
 def test_factory_identity_mismatch_is_preserved_before_execution() -> None:

@@ -59,7 +59,7 @@ builder = PipelineBuilder(
 )
 execution = PlannedExecution(planner=planner, builder=builder)
 
-context = Context(target_id="example.com")  # documentation-only target
+context = Context(target_id="authorized.example")
 plan = execution.plan(
     goals=(PipelineStateKey.RISK_INTELLIGENCE,),
     context=context,
@@ -92,7 +92,7 @@ from redforge.application import (
 from redforge.planning import create_default_registry
 
 # Documentation-only placeholder: the caller remains responsible for permission.
-config = ScanConfig.for_full_assessment("example.com")
+config = ScanConfig.for_full_assessment("authorized.example")
 prepared = prepare_scan(
     config=config,
     registry=create_default_registry(),
@@ -100,7 +100,7 @@ prepared = prepare_scan(
 context = create_initial_context(config)
 
 assert prepared.plan.goals == config.requested_outputs
-assert context.target_id == "example.com"
+assert context.target_id == "authorized.example"
 ```
 
 `ScanConfig` contains application intent and authorization policy. It does not
@@ -159,6 +159,29 @@ network or tool composition. See
 [Application Scan Orchestration](docs/application-orchestration.md) and
 [Scan Limits](docs/scan-limits.md). Composition readiness is documented in
 [Preflight Readiness](docs/preflight-readiness.md).
+
+## Application Composition
+
+Application hosts now select an explicit immutable composition profile and
+receive a ready-to-use `ScanOrchestrator`:
+
+```python
+from redforge.composition import (
+    ApplicationComposition,
+    CompositionProfile,
+)
+
+orchestrator = ApplicationComposition(
+    CompositionProfile.RECONNAISSANCE
+).create_orchestrator()
+```
+
+The reconnaissance profile contains only its five required capabilities. The
+full-assessment profile contains the complete graph but deliberately supplies
+no hidden vulnerability provider, so readiness reports that missing
+configuration honestly. The CLI delegates all registry, factory, runner, and
+probe wiring to this framework. See
+[Application Composition](docs/application-composition.md).
 
 ## Capability Registry
 
@@ -243,7 +266,7 @@ provider = SubfinderSubdomainProvider(
     definition=SUBFINDER_TOOL,
     config=SubfinderConfig(),
 )
-result = provider.discover("example.com")
+result = provider.discover("authorized.example")
 ```
 
 This example uses a documentation-only placeholder target. RedForge does not
@@ -274,7 +297,7 @@ provider = HttpxProbeProvider(
 )
 resolved_hosts = (
     Host(
-        hostname="api.example.com",
+        hostname="api.authorized.example",
         address=IPv4Address("192.0.2.10"),
     ),
 )
@@ -322,7 +345,7 @@ provider = KatanaWebCrawlProvider(
     definition=KATANA_TOOL,
     config=KatanaConfig(),
 )
-result = provider.crawl((Host(hostname="app.example.com"),))
+result = provider.crawl((Host(hostname="app.authorized.example"),))
 ```
 
 The target is a documentation-only placeholder. RedForge does not install
@@ -350,7 +373,7 @@ provider = WhatWebTechnologyDetectionProvider(
     config=WhatWebConfig(),
 )
 result = provider.detect(
-    (Endpoint("app.example.com", 443, "https", "/"),)
+    (Endpoint("app.authorized.example", 443, "https", "/"),)
 )
 ```
 
@@ -429,14 +452,24 @@ run to the existing application orchestrator:
 ```text
 redforge scan authorized.example
 redforge scan authorized.example --preset full --allow-partial-results
+redforge scan authorized.example --config redforge.toml
+redforge scan authorized.example --log-level info
 python -m redforge.cli scan --help
 ```
 
-Only scan systems you are explicitly authorized to assess. Built-in safety
-limits are always applied, and this interface exposes no tool arguments,
-credentials, provider configuration, report export, retry, or limit-bypass
-flags. See [Minimal CLI](docs/cli.md) for presets, output behavior, and exit
-codes.
+Only scan systems you are explicitly authorized to assess. One explicit
+schema-versioned TOML document may select typed scan, composition, limit, and
+output values; the target remains CLI-only. Explicit CLI values override file
+values, which override application defaults. There is no environment override
+or implicit file discovery. See
+[Typed Configuration](docs/configuration.md) and
+[Minimal CLI](docs/cli.md).
+
+Structured lifecycle diagnostics are silent by default. An explicit log level
+emits bounded JSON events to stderr without changing the human summary or the
+single JSON outcome on stdout. Diagnostics contain no evidence, process
+output, environment values, executable paths, credentials, or exception text.
+See [Structured Observability](docs/observability.md).
 
 Human output is the default. Automation can request one versioned, sanitized
 JSON summary on stdout:

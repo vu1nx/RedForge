@@ -16,6 +16,15 @@ from redforge.application.scan_config import (
     prepare_scan,
 )
 from redforge.application.scan_limits import create_scan_limit_policy
+from redforge.observability import (
+    DiagnosticEvent,
+    DiagnosticEventSink,
+    DiagnosticEventType,
+    DiagnosticFields,
+    DiagnosticSeverity,
+    NullDiagnosticEventSink,
+    emit_safely,
+)
 from redforge.planning.builder import PipelineBuilder
 from redforge.planning.execution import PlannedExecution
 from redforge.planning.factories import CapabilityFactoryRegistry
@@ -32,6 +41,7 @@ from redforge.runtime.pipeline import (
     PipelineResult,
 )
 from redforge.sdk.context import Context
+from redforge.sdk.readiness import ReadinessStatus
 from redforge.sdk.result import Status
 
 
@@ -115,6 +125,7 @@ class ScanOrchestrator:
         "_clock",
         "_factory_registry",
         "_preflight",
+        "_sink",
     )
 
     def __init__(
@@ -124,6 +135,7 @@ class ScanOrchestrator:
         factory_registry: CapabilityFactoryRegistry,
         clock: MonotonicClock | None = None,
         readiness_registry: ReadinessRegistry | None = None,
+        diagnostic_sink: DiagnosticEventSink | None = None,
     ) -> None:
         if not isinstance(
             cast(object, capability_registry), CapabilityRegistry
@@ -141,19 +153,64 @@ class ScanOrchestrator:
             clock if clock is not None else SystemMonotonicClock()
         )
         self._preflight = ScanPreflight(readiness_registry)
+        self._sink = (
+            diagnostic_sink
+            if diagnostic_sink is not None
+            else NullDiagnosticEventSink()
+        )
 
     def run(self, config: ScanConfig) -> ScanResult:
         """Prepare and execute one isolated scan through the existing runtime."""
+        self._emit(
+            DiagnosticEventType.SCAN_PREPARATION_STARTED,
+            DiagnosticSeverity.INFO,
+            "Scan preparation started",
+        )
         prepared: PreparedScan = prepare_scan(
             config=config,
             registry=self._capability_registry,
+        )
+        self._emit(
+            DiagnosticEventType.SCAN_PREPARATION_COMPLETED,
+            DiagnosticSeverity.INFO,
+            "Scan preparation completed",
+            DiagnosticFields(planned_steps=len(prepared.plan.steps)),
+        )
+        self._emit(
+            DiagnosticEventType.SCAN_PREFLIGHT_STARTED,
+            DiagnosticSeverity.INFO,
+            "Scan preflight started",
         )
         preflight = self._preflight.run(
             prepared_scan=prepared,
             factory_registry=self._factory_registry,
         )
+        checks_failed = sum(
+            check.status is not ReadinessStatus.READY
+            for check in preflight.checks
+        )
         if not preflight.ready:
+            self._emit(
+                DiagnosticEventType.SCAN_PREFLIGHT_FAILED,
+                DiagnosticSeverity.WARNING,
+                "Scan preflight failed",
+                DiagnosticFields(
+                    ready=False,
+                    preflight_checks_total=len(preflight.checks),
+                    preflight_checks_failed=checks_failed,
+                ),
+            )
             raise ScanPreflightError(preflight)
+        self._emit(
+            DiagnosticEventType.SCAN_PREFLIGHT_COMPLETED,
+            DiagnosticSeverity.INFO,
+            "Scan preflight completed",
+            DiagnosticFields(
+                ready=True,
+                preflight_checks_total=len(preflight.checks),
+                preflight_checks_failed=checks_failed,
+            ),
+        )
         planned_execution = PlannedExecution(
             planner=ExecutionPlanner(self._capability_registry),
             builder=PipelineBuilder(
@@ -161,24 +218,78 @@ class ScanOrchestrator:
                 factory_registry=self._factory_registry,
             ),
         )
+        self._emit(
+            DiagnosticEventType.SCAN_BUILD_STARTED,
+            DiagnosticSeverity.INFO,
+            "Scan build started",
+        )
+        pipeline = planned_execution.build(prepared.plan)
+        self._emit(
+            DiagnosticEventType.SCAN_BUILD_COMPLETED,
+            DiagnosticSeverity.INFO,
+            "Scan build completed",
+            DiagnosticFields(planned_steps=len(prepared.plan.steps)),
+        )
         policy = create_scan_limit_policy(
             config.limits,
             clock=self._clock,
         )
         context = create_initial_context(config)
-        pipeline_result = planned_execution.execute(
-            plan=prepared.plan,
-            context=context,
+        self._emit(
+            DiagnosticEventType.SCAN_EXECUTION_STARTED,
+            DiagnosticSeverity.INFO,
+            "Scan execution started",
+        )
+        pipeline_result = pipeline.run(
+            context,
             policy=policy,
+            diagnostic_sink=self._sink,
+        )
+        self._emit(
+            DiagnosticEventType.SCAN_EXECUTION_COMPLETED,
+            DiagnosticSeverity.INFO,
+            "Scan execution completed",
+            DiagnosticFields(
+                runtime_status=pipeline_result.status.name,
+                history_count=len(pipeline_result.executions),
+            ),
         )
         accepted = is_scan_result_accepted(
             pipeline_result.status,
             allow_partial_results=config.allow_partial_results,
         )
-        return ScanResult(
+        result = ScanResult(
             config=config,
             plan=prepared.plan,
             preflight=preflight,
             pipeline_result=pipeline_result,
             accepted=accepted,
+        )
+        self._emit(
+            DiagnosticEventType.SCAN_RESULT_CREATED,
+            DiagnosticSeverity.INFO,
+            "Scan result created",
+            DiagnosticFields(
+                runtime_status=result.runtime_status.name,
+                accepted=result.accepted,
+                history_count=len(result.execution_history),
+            ),
+        )
+        return result
+
+    def _emit(
+        self,
+        event_type: DiagnosticEventType,
+        severity: DiagnosticSeverity,
+        message: str,
+        fields: DiagnosticFields | None = None,
+    ) -> None:
+        emit_safely(
+            self._sink,
+            DiagnosticEvent(
+                event_type=event_type,
+                severity=severity,
+                message=message,
+                fields=fields or DiagnosticFields(),
+            ),
         )

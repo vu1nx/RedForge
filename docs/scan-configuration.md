@@ -37,9 +37,9 @@ paths, queries, fragments, wildcards, IP addresses, whitespace, and control
 characters are rejected.
 
 `ScanScope` authorizes the exact root and label-boundary subdomains. For
-`example.com`, `api.example.com` is in scope while `notexample.com` and
-`example.com.attacker.test` are not. Matching performs no DNS lookup or network
-access.
+`authorized.example`, `api.authorized.example` is in scope while
+`notauthorized.example` and `authorized.example.attacker.test` are not.
+Matching performs no DNS lookup or network access.
 
 Application acceptance has a deliberately narrow meaning:
 
@@ -152,9 +152,10 @@ configuration are not stored in Context.
 
 ## Current boundary
 
-This configuration contract performs no CLI parsing, interactive input,
-configuration-file loading, environment-variable loading, persistence, retry,
-caching, report export, or provider installation. The [minimal CLI](cli.md)
-constructs these canonical presets directly and exposes no alternate
-configuration source. Long-running workflow management, persistence, report
-export, and forceful cancellation remain absent.
+`ScanConfig` itself remains format-neutral and performs no CLI parsing,
+interactive input, file loading, environment-variable loading, persistence,
+retry, caching, report export, or provider installation. The separate
+[typed configuration](configuration.md) package may translate one explicit
+TOML document into this application contract. Long-running workflow
+management, persistence, report export, and forceful cancellation remain
+absent.

@@ -14,6 +14,14 @@ ERROR > FAILURE > PARTIAL > SUCCESS
 `SUCCESS` and `PARTIAL` continue execution. `FAILURE` and `ERROR` stop execution.
 A later success cannot erase an earlier partial outcome.
 
+Optional [structured diagnostics](observability.md) reflect this contract
+without becoming part of it. Each capability attempt emits a start event and
+one terminal event corresponding exactly to `SUCCESS`, `PARTIAL`, `FAILURE`,
+or `ERROR`. A policy event precedes the terminal failure when applicable.
+Events contain no result data, publications, errors, metadata, Context, or
+exception text. Sink exceptions are suppressed and cannot change status,
+continuation, publication, history, or acceptance.
+
 Capability validation and pipeline aggregation have separate responsibilities.
 Each capability validates its own required inputs and returns the appropriate
 status. The pipeline preserves, combines, and applies that status; declarative

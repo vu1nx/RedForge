@@ -116,12 +116,26 @@ after readiness succeeds.
 
 Tests and offline applications inject deterministic tool and provider probes.
 No real PATH, executable, subprocess, network, or target is required.
+The immutable [application composition](application-composition.md) profile
+owns this wiring and accepts explicit runner, provider, tool-probe, and
+provider-probe substitutions without a service locator or deep monkeypatching.
 Planner, direct PipelineBuilder, direct Pipeline, manual pipelines, adapters,
 ToolRegistry, and ToolRunner remain independently usable without preflight.
 The [minimal CLI](cli.md) treats a non-ready result as an expected
 pre-execution condition, prints only typed sanitized reasons, returns exit code
 3, and never invokes a capability.
+Selecting `full_assessment` through
+[typed configuration](configuration.md) remains valid configuration; when no
+vulnerability provider is supplied, this preflight boundary reports
+`provider_absent` rather than configuration validation inventing a provider.
 In JSON mode it publishes the same deterministic failed checks as a bounded
 `preflight` summary on stdout, with null runtime fields and no executable path,
 environment, raw exception, or Context. See
 [Deterministic JSON Output](json-output.md).
+
+Structured observability emits one preflight start event followed by one
+completed or failed summary containing only readiness, total-check, and
+failed-check counts. It does not emit each ready check or any executable path,
+provider exception, or configuration value. A readiness failure produces no
+build, execution, capability, or runtime-status event. See
+[Structured Observability](observability.md).

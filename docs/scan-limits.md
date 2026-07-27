@@ -49,6 +49,13 @@ The typed `StateLimitViolation` contains only the canonical state key, observed
 count, and allowed count. Diagnostics do not contain the collection, target,
 provider, tool, command, environment, stdout, stderr, or filesystem path.
 
+Structured observability emits `policy_limit_exceeded` before the failing
+capability terminal event using only the state key, observed/allowed counts,
+and typed capability identity. Deadline policy emits
+`policy_deadline_exceeded` without absolute deadlines, monotonic readings,
+timestamps, durations, or unfinished output. Neither event changes the
+existing `FAILURE` result. See [Structured Observability](observability.md).
+
 ## Deadline semantics
 
 `overall_timeout_seconds` is converted once to an absolute deadline using a
@@ -96,9 +103,10 @@ cancellation, and does not avoid pipeline construction when already expired.
 There are no limits for intelligence read models because no accepted
 `ScanLimits` fields define them.
 
-The [minimal CLI](cli.md) always uses the validated `ScanLimits` defaults and
-does not expose flags for increasing or bypassing them. Limit violations are
-rendered from typed metadata without publishing rejected evidence.
+The [typed configuration](configuration.md) surface may set validated limits;
+omitted fields retain `ScanLimits` defaults. The [minimal CLI](cli.md) does not
+expose flags for increasing or bypassing them. Limit violations are rendered
+from typed metadata without publishing rejected evidence.
 Its [JSON contract](json-output.md) represents state limits using only the
 state key and observed/allowed counts, and represents deadlines without
 timestamps or monotonic clock values.

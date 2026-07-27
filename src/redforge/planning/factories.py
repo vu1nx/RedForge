@@ -241,6 +241,7 @@ class CapabilityDependencies:
 def create_default_factory_registry(
     *,
     dependencies: CapabilityDependencies | None = None,
+    enabled_capabilities: tuple[CapabilityId, ...] | None = None,
     subdomain_provider: SubdomainProvider | None = None,
     host_resolver: HostResolver | None = None,
     http_transport: HttpProbeProvider | None = None,
@@ -275,8 +276,37 @@ def create_default_factory_registry(
             "dependencies cannot be combined with individual dependency arguments"
         )
 
+    if enabled_capabilities is not None:
+        if not isinstance(cast(object, enabled_capabilities), tuple):
+            raise TypeError("enabled capabilities must be an immutable tuple")
+        try:
+            enabled = frozenset(
+                normalize_capability_id(item)
+                for item in enabled_capabilities
+            )
+        except (TypeError, ValueError):
+            raise ValueError("enabled capability identity is invalid") from None
+        if len(enabled) != len(enabled_capabilities):
+            raise ValueError("enabled capabilities contain duplicates")
+    else:
+        enabled = None
+
     registry = CapabilityFactoryRegistry()
-    registry.register(
+
+    def register(
+        capability_id: CapabilityId,
+        factory: CapabilityFactory,
+        *,
+        requirements: tuple[ReadinessRequirement, ...] = (),
+    ) -> None:
+        if enabled is None or capability_id in enabled:
+            registry.register(
+                capability_id,
+                factory,
+                requirements=requirements,
+            )
+
+    register(
         SUBDOMAIN_DISCOVERY,
         lambda: SubdomainDiscovery(
             provider=(
@@ -295,11 +325,11 @@ def create_default_factory_registry(
             tool_id=SUBFINDER_TOOL_ID,
         ),
     )
-    registry.register(
+    register(
         HOST_RESOLUTION,
         lambda: HostResolutionCapability(resolver=configured.host_resolver),
     )
-    registry.register(
+    register(
         HTTP_PROBE,
         lambda: HttpProbeCapability(
             provider=(
@@ -318,7 +348,7 @@ def create_default_factory_registry(
             tool_id=HTTPX_TOOL_ID,
         ),
     )
-    registry.register(
+    register(
         WEB_CRAWL,
         lambda: WebCrawlCapability(
             provider=(
@@ -337,7 +367,7 @@ def create_default_factory_registry(
             tool_id=KATANA_TOOL_ID,
         ),
     )
-    registry.register(
+    register(
         TECHNOLOGY_DETECTION,
         lambda: TechnologyDetectionCapability(
             provider=(
@@ -356,8 +386,8 @@ def create_default_factory_registry(
             tool_id=WHATWEB_TOOL_ID,
         ),
     )
-    registry.register(ASSET_INTELLIGENCE, AssetIntelligenceCapability)
-    registry.register(
+    register(ASSET_INTELLIGENCE, AssetIntelligenceCapability)
+    register(
         VULNERABILITY_INTELLIGENCE,
         lambda: VulnerabilityIntelligenceCapability(
             provider=configured.vulnerability_provider
@@ -371,6 +401,10 @@ def create_default_factory_registry(
             ),
         ),
     )
-    registry.register(KNOWLEDGE_GRAPH, KnowledgeGraphCapability)
-    registry.register(RISK_INTELLIGENCE, RiskIntelligenceCapability)
+    register(KNOWLEDGE_GRAPH, KnowledgeGraphCapability)
+    register(RISK_INTELLIGENCE, RiskIntelligenceCapability)
+    if enabled is not None:
+        unknown = enabled.difference(registry.ids)
+        if unknown:
+            raise ValueError("enabled capabilities contain an unknown identity")
     return registry

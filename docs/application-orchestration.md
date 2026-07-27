@@ -37,8 +37,12 @@ registry. Applications may inject authorized production providers or
 deterministic offline fakes. The orchestrator imports no concrete adapter,
 ToolRunner, executable, network transport, filesystem API, or CLI framework.
 The [minimal CLI](cli.md) is a higher application adapter that performs raw
-argument parsing and explicit production composition before calling this
-unchanged service.
+argument parsing and rendering. The [typed configuration](configuration.md)
+layer translates an explicit TOML document and explicit CLI overrides into
+`ScanConfig`, output format, and an
+[application composition](application-composition.md) profile before calling
+this unchanged service. The composition framework, not the CLI, owns registry,
+factory, provider, runner, and readiness wiring.
 Its optional [JSON renderer](json-output.md) extracts only stable public
 application summaries; the orchestrator remains unaware of output formats and
 does not import CLI serializers.
@@ -60,6 +64,13 @@ One `run()` call:
 
 There is no repeated planning, dynamic replanning, fallback provider, retry,
 or hidden capability insertion.
+
+The service emits bounded phase events around the same one-shot operations and
+passes its explicit diagnostic sink to the Pipeline. Emission failures are
+suppressed only at the observability boundary and cannot repeat preparation,
+preflight, build, execution, or acceptance. Events carry no Context evidence,
+provider errors, process details, or raw target input. See
+[Structured Observability](observability.md).
 
 ## Dependency injection and build failures
 
@@ -156,6 +167,6 @@ See [Scan Limits](scan-limits.md).
 ## Current non-goals
 
 This service is library-level one-shot orchestration only. It adds no CLI,
-interactive prompts, configuration-file or environment loading, persistence,
+interactive prompts, TOML or environment loading, persistence,
 queues, scheduling, resume, caching, reports, filesystem output, automatic tool
 installation, or legal authorization verification.

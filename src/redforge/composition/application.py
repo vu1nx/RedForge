@@ -1,0 +1,256 @@
+"""Explicit provider-neutral application composition profiles."""
+
+from dataclasses import dataclass, field
+from typing import cast
+
+from redforge.adapters import (
+    HostResolver,
+    LocalSubprocessToolRunner,
+    ToolRunnerReadinessProbe,
+    VulnerabilityProvider,
+    create_default_tool_registry,
+)
+from redforge.application import ReadinessRegistry, ScanOrchestrator
+from redforge.composition.profile import CompositionProfile
+from redforge.observability import (
+    DiagnosticEventSink,
+    NullDiagnosticEventSink,
+)
+from redforge.planning import (
+    CapabilityDependencies,
+    CapabilityFactoryRegistry,
+    CapabilityRegistry,
+    create_default_factory_registry,
+    create_default_registry,
+)
+from redforge.sdk import (
+    ASSET_INTELLIGENCE,
+    HOST_RESOLUTION,
+    HTTP_PROBE,
+    KNOWLEDGE_GRAPH,
+    RISK_INTELLIGENCE,
+    SUBDOMAIN_DISCOVERY,
+    TECHNOLOGY_DETECTION,
+    VULNERABILITY_INTELLIGENCE,
+    WEB_CRAWL,
+    CapabilityId,
+    ProviderReadinessProbe,
+    ProviderRole,
+    SubdomainProvider,
+    TechnologyDetectionProvider,
+    ToolReadinessProbe,
+    ToolRegistry,
+    ToolRunner,
+    WebCrawlProvider,
+)
+from redforge.sdk.http_probe import HttpProbeProvider
+
+_RECONNAISSANCE_CAPABILITIES = (
+    SUBDOMAIN_DISCOVERY,
+    HOST_RESOLUTION,
+    HTTP_PROBE,
+    WEB_CRAWL,
+    TECHNOLOGY_DETECTION,
+)
+_FULL_ASSESSMENT_CAPABILITIES = (
+    *_RECONNAISSANCE_CAPABILITIES,
+    ASSET_INTELLIGENCE,
+    VULNERABILITY_INTELLIGENCE,
+    KNOWLEDGE_GRAPH,
+    RISK_INTELLIGENCE,
+)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CompositionProviders:
+    """Explicit provider ports supplied by one application host."""
+
+    subdomain_provider: SubdomainProvider | None = field(
+        default=None,
+        repr=False,
+    )
+    host_resolver: HostResolver | None = field(default=None, repr=False)
+    http_transport: HttpProbeProvider | None = field(
+        default=None,
+        repr=False,
+    )
+    web_crawler: WebCrawlProvider | None = field(default=None, repr=False)
+    technology_detector: TechnologyDetectionProvider | None = field(
+        default=None,
+        repr=False,
+    )
+    vulnerability_provider: VulnerabilityProvider | None = field(
+        default=None,
+        repr=False,
+    )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ApplicationComposition:
+    """Immutable recipe that constructs one isolated application runtime."""
+
+    profile: CompositionProfile
+    providers: CompositionProviders = field(
+        default_factory=CompositionProviders,
+        repr=False,
+    )
+    tool_runner: ToolRunner | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    tool_readiness_probe: ToolReadinessProbe | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    provider_readiness_probes: tuple[
+        tuple[ProviderRole, ProviderReadinessProbe], ...
+    ] = field(default=(), repr=False, compare=False)
+    diagnostic_sink: DiagnosticEventSink = field(
+        default_factory=NullDiagnosticEventSink,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        if not isinstance(cast(object, self.profile), CompositionProfile):
+            raise TypeError("composition profile is invalid")
+        if not isinstance(
+            cast(object, self.providers), CompositionProviders
+        ):
+            raise TypeError("composition providers are invalid")
+        if self.tool_runner is not None and not all(
+            callable(getattr(cast(object, self.tool_runner), method, None))
+            for method in ("run", "is_available")
+        ):
+            raise TypeError("composition tool runner is invalid")
+        if self.tool_readiness_probe is not None and not callable(
+            getattr(
+                cast(object, self.tool_readiness_probe),
+                "check",
+                None,
+            )
+        ):
+            raise TypeError("tool readiness probe is invalid")
+        probes = cast(object, self.provider_readiness_probes)
+        if not isinstance(probes, tuple):
+            raise TypeError("provider readiness probes must be an immutable tuple")
+        roles: list[ProviderRole] = []
+        for item in cast(tuple[object, ...], probes):
+            if not isinstance(item, tuple):
+                raise TypeError("provider readiness probe is invalid")
+            pair = cast(tuple[object, ...], item)
+            if len(pair) != 2:
+                raise TypeError("provider readiness probe is invalid")
+            role, probe = pair
+            if not isinstance(role, ProviderRole) or not callable(
+                getattr(probe, "check", None)
+            ):
+                raise TypeError("provider readiness probe is invalid")
+            roles.append(role)
+        if len(roles) != len(set(roles)):
+            raise ValueError("provider readiness probes contain duplicate roles")
+        if not isinstance(
+            cast(object, self.diagnostic_sink),
+            DiagnosticEventSink,
+        ):
+            raise TypeError("diagnostic sink is invalid")
+
+    @property
+    def capability_ids(self) -> tuple[CapabilityId, ...]:
+        """Return the immutable capability set owned by this profile."""
+        if self.profile is CompositionProfile.RECONNAISSANCE:
+            return _RECONNAISSANCE_CAPABILITIES
+        return _FULL_ASSESSMENT_CAPABILITIES
+
+    def create_orchestrator(self) -> ScanOrchestrator:
+        """Construct fresh registries, readiness infrastructure, and service."""
+        capability_registry = _profile_capability_registry(
+            self.capability_ids
+        )
+        dependencies = self._capability_dependencies()
+        factories = create_default_factory_registry(
+            dependencies=dependencies,
+            enabled_capabilities=self.capability_ids,
+        )
+        tool_registry = _required_tool_registry(factories)
+        tool_probe = self.tool_readiness_probe
+        if tool_probe is None and tool_registry.ids():
+            runner = dependencies.tool_runner
+            if runner is None:
+                raise RuntimeError("tool-backed composition requires a runner")
+            tool_probe = ToolRunnerReadinessProbe(runner)
+        return ScanOrchestrator(
+            capability_registry=capability_registry,
+            factory_registry=factories,
+            readiness_registry=ReadinessRegistry(
+                tool_registry=tool_registry,
+                tool_probe=tool_probe,
+                provider_probes=self.provider_readiness_probes,
+            ),
+            diagnostic_sink=self.diagnostic_sink,
+        )
+
+    def _capability_dependencies(self) -> CapabilityDependencies:
+        providers = self.providers
+        runner = self.tool_runner
+        if runner is None and self._requires_tool_runner():
+            runner = LocalSubprocessToolRunner()
+        return CapabilityDependencies(
+            subdomain_provider=providers.subdomain_provider,
+            host_resolver=providers.host_resolver,
+            http_transport=providers.http_transport,
+            web_crawler=providers.web_crawler,
+            technology_detector=providers.technology_detector,
+            vulnerability_provider=providers.vulnerability_provider,
+            tool_runner=runner,
+        )
+
+    def _requires_tool_runner(self) -> bool:
+        providers = self.providers
+        tool_backed = (
+            (
+                SUBDOMAIN_DISCOVERY,
+                providers.subdomain_provider,
+            ),
+            (HTTP_PROBE, providers.http_transport),
+            (WEB_CRAWL, providers.web_crawler),
+            (
+                TECHNOLOGY_DETECTION,
+                providers.technology_detector,
+            ),
+        )
+        enabled = frozenset(self.capability_ids)
+        return any(
+            capability_id in enabled and provider is None
+            for capability_id, provider in tool_backed
+        )
+
+
+def _required_tool_registry(
+    factories: CapabilityFactoryRegistry,
+) -> ToolRegistry:
+    default_tools = create_default_tool_registry()
+    required = {
+        requirement.tool_id
+        for capability_id in factories.ids
+        for definition in (factories.definition_for(capability_id),)
+        if definition is not None
+        for requirement in definition.requirements
+        if requirement.tool_id is not None
+    }
+    return ToolRegistry(
+        default_tools.require(tool_id)
+        for tool_id in sorted(required)
+    )
+
+
+def _profile_capability_registry(
+    capability_ids: tuple[CapabilityId, ...],
+) -> CapabilityRegistry:
+    defaults = create_default_registry()
+    return CapabilityRegistry(
+        defaults.require(capability_id)
+        for capability_id in capability_ids
+    )

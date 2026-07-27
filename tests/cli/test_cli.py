@@ -2,6 +2,7 @@
 
 import json
 from io import StringIO
+from pathlib import Path
 from typing import Any, cast
 
 import pytest  # type: ignore[reportMissingImports]
@@ -29,6 +30,14 @@ from redforge.cli import (
     render_scan_result,
 )
 from redforge.cli.main import parse_cli_args
+from redforge.configuration import ObservabilityLevel, RedForgeConfiguration
+from redforge.observability import (
+    DiagnosticEvent,
+    DiagnosticEventSink,
+    DiagnosticEventType,
+    DiagnosticSeverity,
+    emit_safely,
+)
 from redforge.planning import (
     MissingCapabilityFactoryError,
     create_default_registry,
@@ -123,6 +132,29 @@ class FakeOrchestrator:
         )
 
 
+class DiagnosticFakeOrchestrator(FakeOrchestrator):
+    def __init__(
+        self,
+        sink: DiagnosticEventSink,
+        severities: tuple[DiagnosticSeverity, ...],
+    ) -> None:
+        super().__init__()
+        self._sink = sink
+        self._severities = severities
+
+    def run(self, config: ScanConfig) -> ScanResult:
+        for severity in self._severities:
+            emit_safely(
+                self._sink,
+                DiagnosticEvent(
+                    event_type=DiagnosticEventType.SCAN_EXECUTION_STARTED,
+                    severity=severity,
+                    message="Scan execution started",
+                ),
+            )
+        return super().run(config)
+
+
 def _run(
     argv: list[str],
     orchestrator: FakeOrchestrator,
@@ -145,16 +177,56 @@ def _run(
     return code, stdout.getvalue(), stderr.getvalue(), factory_calls
 
 
-def test_parser_is_fresh_and_defaults_to_reconnaissance() -> None:
+def _run_with_composition(
+    argv: list[str],
+    severities: tuple[DiagnosticSeverity, ...],
+) -> tuple[int, str, str, int]:
+    stdout = StringIO()
+    stderr = StringIO()
+    composition_calls = 0
+
+    def factory(
+        profile: object,
+        sink: DiagnosticEventSink,
+    ) -> DiagnosticFakeOrchestrator:
+        nonlocal composition_calls
+        _ = profile
+        composition_calls += 1
+        return DiagnosticFakeOrchestrator(sink, severities)
+
+    code = main(
+        argv,
+        composition_factory=factory,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    return (
+        code,
+        stdout.getvalue(),
+        stderr.getvalue(),
+        composition_calls,
+    )
+
+
+def test_parser_is_fresh_and_preserves_omitted_overrides() -> None:
     first = build_parser()
     second = build_parser()
     options = parse_cli_args(["scan", "authorized.example"])
 
     assert first is not second
     assert options.target == "authorized.example"
-    assert options.preset is ScanPreset.RECONNAISSANCE
-    assert options.output_format is OutputFormat.HUMAN
-    assert not options.allow_partial_results
+    assert options.preset is None
+    assert options.output_format is None
+    assert options.allow_partial_results is None
+    assert options.log_level is None
+
+
+def test_log_level_option_is_typed() -> None:
+    options = parse_cli_args(
+        ["scan", "authorized.example", "--log-level", "warning"]
+    )
+
+    assert options.log_level is ObservabilityLevel.WARNING
 
 
 def test_root_and_scan_help_are_non_exiting_and_authorization_safe() -> None:
@@ -650,7 +722,7 @@ def test_json_missing_target_is_handled_after_output_mode_resolution() -> None:
     assert factory_calls == 0
     assert payload["outcome"] == "invalid_input"
     assert payload["target"] is None
-    assert payload["preset"] == "reconnaissance"
+    assert payload["preset"] is None
 
 
 def test_json_composition_failure_is_sanitized() -> None:
@@ -717,3 +789,505 @@ def test_json_internal_error_and_interrupt_are_single_sanitized_documents(
     }
     assert "secret-token" not in stdout
     assert "private" not in stdout
+
+
+def _configuration_file(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "redforge.toml"
+    path.write_text(f"schema_version = 1\n{body}", encoding="utf-8")
+    return path
+
+
+def test_config_values_apply_when_cli_overrides_are_omitted(
+    tmp_path: Path,
+) -> None:
+    path = _configuration_file(
+        tmp_path,
+        """
+[scan]
+preset = "full"
+allow_partial_results = true
+[composition]
+profile = "full_assessment"
+[output]
+format = "json"
+""",
+    )
+    orchestrator = FakeOrchestrator(status=Status.PARTIAL)
+
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example", "--config", str(path)],
+        orchestrator,
+    )
+    payload = _json_document(stdout)
+
+    assert code == ExitCode.ACCEPTED
+    assert stderr == ""
+    assert payload["preset"] == "full"
+    assert payload["runtime_status"] == "partial"
+    assert orchestrator.configs[0].requested_outputs == (
+        PipelineStateKey.RISK_INTELLIGENCE,
+    )
+    assert orchestrator.configs[0].allow_partial_results
+
+
+def test_explicit_cli_values_override_configuration(
+    tmp_path: Path,
+) -> None:
+    path = _configuration_file(
+        tmp_path,
+        """
+[scan]
+preset = "reconnaissance"
+allow_partial_results = false
+[composition]
+profile = "reconnaissance"
+[output]
+format = "human"
+""",
+    )
+    orchestrator = FakeOrchestrator(status=Status.PARTIAL)
+
+    code, stdout, stderr, _ = _run(
+        [
+            "scan",
+            "authorized.example",
+            "--config",
+            str(path),
+            "--preset",
+            "full",
+            "--allow-partial-results",
+            "--output",
+            "json",
+        ],
+        orchestrator,
+    )
+    payload = _json_document(stdout)
+
+    assert code == ExitCode.ACCEPTED
+    assert stderr == ""
+    assert payload["preset"] == "full"
+    assert orchestrator.configs[0].requested_outputs == (
+        PipelineStateKey.RISK_INTELLIGENCE,
+    )
+    assert orchestrator.configs[0].allow_partial_results
+
+
+def test_configuration_limits_are_translated_into_scan_config(
+    tmp_path: Path,
+) -> None:
+    path = _configuration_file(
+        tmp_path,
+        "[scan.limits]\nmax_hosts = 7\noverall_timeout_seconds = 9\n",
+    )
+    orchestrator = FakeOrchestrator()
+
+    code, _, stderr, _ = _run(
+        ["scan", "authorized.example", "--config", str(path)],
+        orchestrator,
+    )
+
+    assert code == ExitCode.ACCEPTED
+    assert stderr == ""
+    assert orchestrator.configs[0].limits.max_hosts == 7
+    assert orchestrator.configs[0].limits.overall_timeout_seconds == 9
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        ("not valid =", "configuration file could not be parsed"),
+        ("schema_version = 2\n", "schema version is unsupported"),
+        (
+            "schema_version = 1\n[scan]\npresett = true\n",
+            "unknown configuration field: scan.presett",
+        ),
+        (
+            'schema_version = 1\n[scan]\npreset = "full"\n'
+            '[composition]\nprofile = "reconnaissance"\n',
+            "scan preset is incompatible",
+        ),
+        (
+            "schema_version = 1\n[scan.limits]\nmax_hosts = false\n",
+            "invalid configuration value",
+        ),
+        (
+            'schema_version = 1\n[observability]\nlevel = "verbose"\n',
+            "invalid configuration value",
+        ),
+    ),
+)
+def test_human_configuration_errors_are_typed_and_sanitized(
+    tmp_path: Path,
+    body: str,
+    expected: str,
+) -> None:
+    path = tmp_path / "redforge.toml"
+    path.write_text(body, encoding="utf-8")
+
+    code, stdout, stderr, factory_calls = _run(
+        ["scan", "authorized.example", "--config", str(path)],
+        FakeOrchestrator(),
+    )
+
+    assert code == ExitCode.INVALID_INPUT
+    assert stdout == ""
+    assert factory_calls == 0
+    assert stderr.startswith("Configuration error\n")
+    assert expected in stderr
+    assert str(path) not in stderr
+    assert "Traceback" not in stderr
+
+
+def test_explicit_json_configuration_failure_is_one_document(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "private" / "missing.toml"
+
+    code, stdout, stderr, factory_calls = _run(
+        [
+            "scan",
+            "authorized.example",
+            "--config",
+            str(missing),
+            "--output",
+            "json",
+        ],
+        FakeOrchestrator(),
+    )
+    payload = _json_document(stdout)
+
+    assert code == payload["exit_code"] == ExitCode.INVALID_INPUT
+    assert stderr == ""
+    assert factory_calls == 0
+    assert payload["outcome"] == "invalid_input"
+    assert payload["target"] is None
+    assert payload["preset"] is None
+    assert payload["error"] == {
+        "reason_code": "configuration_file_unavailable",
+        "message": "configuration file is unavailable",
+    }
+    assert str(missing) not in stdout
+
+
+def test_missing_configuration_file_is_a_sanitized_human_error(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "private" / "missing.toml"
+
+    code, stdout, stderr, factory_calls = _run(
+        ["scan", "authorized.example", "--config", str(missing)],
+        FakeOrchestrator(),
+    )
+
+    assert code == ExitCode.INVALID_INPUT
+    assert stdout == ""
+    assert factory_calls == 0
+    assert stderr == (
+        "Configuration error\nconfiguration file is unavailable\n"
+    )
+    assert str(missing) not in stderr
+
+
+@pytest.mark.parametrize(
+    ("body", "reason_code"),
+    (
+        ("not valid =", "configuration_parse_failed"),
+        ("schema_version = 2\n", "configuration_version_unsupported"),
+        (
+            "schema_version = 1\n[scan]\npresett = true\n",
+            "configuration_field_unknown",
+        ),
+        (
+            'schema_version = 1\n[scan]\npreset = "full"\n'
+            '[composition]\nprofile = "reconnaissance"\n',
+            "configuration_profile_incompatible",
+        ),
+        (
+            "schema_version = 1\n[scan.limits]\nmax_hosts = false\n",
+            "configuration_value_invalid",
+        ),
+        (
+            'schema_version = 1\n[observability]\nlevel = "verbose"\n',
+            "configuration_value_invalid",
+        ),
+    ),
+)
+def test_json_configuration_failures_use_stable_reason_codes(
+    tmp_path: Path,
+    body: str,
+    reason_code: str,
+) -> None:
+    path = tmp_path / "redforge.toml"
+    path.write_text(body, encoding="utf-8")
+
+    code, stdout, stderr, factory_calls = _run(
+        [
+            "scan",
+            "authorized.example",
+            "--config",
+            str(path),
+            "--output",
+            "json",
+        ],
+        FakeOrchestrator(),
+    )
+    payload = _json_document(stdout)
+
+    assert code == payload["exit_code"] == ExitCode.INVALID_INPUT
+    assert stderr == ""
+    assert factory_calls == 0
+    assert payload["error"]["reason_code"] == reason_code
+    assert str(path) not in stdout
+
+
+def test_invalid_credential_target_with_config_never_composes(
+    tmp_path: Path,
+) -> None:
+    path = _configuration_file(tmp_path, "")
+
+    code, stdout, stderr, factory_calls = _run(
+        [
+            "scan",
+            "user:password@authorized.example",
+            "--config",
+            str(path),
+            "--output",
+            "json",
+        ],
+        FakeOrchestrator(),
+    )
+
+    assert code == ExitCode.INVALID_INPUT
+    assert stderr == ""
+    assert factory_calls == 0
+    assert "password" not in stdout
+
+
+def test_configured_json_output_applies_to_invalid_target(
+    tmp_path: Path,
+) -> None:
+    path = _configuration_file(
+        tmp_path,
+        '[output]\nformat = "json"\n',
+    )
+
+    code, stdout, stderr, factory_calls = _run(
+        [
+            "scan",
+            "user:password@authorized.example",
+            "--config",
+            str(path),
+        ],
+        FakeOrchestrator(),
+    )
+    payload = _json_document(stdout)
+
+    assert code == ExitCode.INVALID_INPUT
+    assert stderr == ""
+    assert factory_calls == 0
+    assert payload["error"]["reason_code"] == "invalid_target"
+    assert "password" not in stdout
+
+
+def test_interrupt_after_configuration_load_uses_configured_output(
+    tmp_path: Path,
+) -> None:
+    path = _configuration_file(
+        tmp_path,
+        '[output]\nformat = "json"\n',
+    )
+
+    code, stdout, stderr, _ = _run(
+        ["scan", "authorized.example", "--config", str(path)],
+        FakeOrchestrator(raised=KeyboardInterrupt()),
+    )
+    payload = _json_document(stdout)
+
+    assert code == ExitCode.INTERRUPTED
+    assert stderr == ""
+    assert payload["outcome"] == "interrupted"
+
+
+def test_duplicate_config_options_are_parser_errors(tmp_path: Path) -> None:
+    path = _configuration_file(tmp_path, "")
+
+    code, stdout, stderr, factory_calls = _run(
+        [
+            "scan",
+            "authorized.example",
+            "--config",
+            str(path),
+            "--config",
+            str(path),
+        ],
+        FakeOrchestrator(),
+    )
+
+    assert code == ExitCode.INVALID_INPUT
+    assert stdout == ""
+    assert factory_calls == 0
+    assert "only once" in stderr
+
+
+def test_unexpected_loader_error_uses_outer_json_boundary() -> None:
+    stdout = StringIO()
+    stderr = StringIO()
+
+    def broken_loader(path: Path) -> RedForgeConfiguration:
+        raise RuntimeError(f"secret loader path: {path}")
+
+    code = main(
+        [
+            "scan",
+            "authorized.example",
+            "--config",
+            "private.toml",
+            "--output",
+            "json",
+        ],
+        configuration_loader=broken_loader,
+        orchestrator_factory=lambda: FakeOrchestrator(),
+        stdout=stdout,
+        stderr=stderr,
+    )
+    payload = _json_document(stdout.getvalue())
+
+    assert code == ExitCode.INTERNAL_ERROR
+    assert stderr.getvalue() == ""
+    assert payload["outcome"] == "internal_error"
+    assert "private.toml" not in stdout.getvalue()
+
+
+def test_default_and_explicit_off_observability_remain_silent() -> None:
+    default = _run_with_composition(
+        ["scan", "authorized.example"],
+        (DiagnosticSeverity.ERROR,),
+    )
+    explicit = _run_with_composition(
+        ["scan", "authorized.example", "--log-level", "off"],
+        (DiagnosticSeverity.ERROR,),
+    )
+
+    assert default == explicit
+    assert default[0] == ExitCode.ACCEPTED
+    assert default[2] == ""
+
+
+def test_human_output_and_structured_diagnostics_are_isolated() -> None:
+    code, stdout, stderr, calls = _run_with_composition(
+        ["scan", "authorized.example", "--log-level", "info"],
+        (DiagnosticSeverity.INFO,),
+    )
+    diagnostic = cast(dict[str, Any], json.loads(stderr))
+
+    assert code == ExitCode.ACCEPTED
+    assert calls == 1
+    assert stdout.startswith("Scan completed\n")
+    assert stdout.count("Scan completed") == 1
+    assert diagnostic["event_type"] == "scan_execution_started"
+    assert diagnostic["severity"] == "INFO"
+    assert "Scan completed" not in stderr
+
+
+def test_json_outcome_stays_one_stdout_document_with_stderr_diagnostics() -> None:
+    code, stdout, stderr, calls = _run_with_composition(
+        [
+            "scan",
+            "authorized.example",
+            "--output",
+            "json",
+            "--log-level",
+            "info",
+        ],
+        (DiagnosticSeverity.INFO,),
+    )
+    outcome = _json_document(stdout)
+    diagnostic = cast(dict[str, Any], json.loads(stderr))
+
+    assert code == outcome["exit_code"] == ExitCode.ACCEPTED
+    assert calls == 1
+    assert diagnostic["schema_version"] == 1
+    assert diagnostic["event_type"] == "scan_execution_started"
+    assert "scan_execution_started" not in stdout
+    assert '"outcome"' not in stderr
+
+
+def test_configured_log_level_and_explicit_cli_precedence(
+    tmp_path: Path,
+) -> None:
+    path = _configuration_file(
+        tmp_path,
+        '[observability]\nlevel = "warning"\n',
+    )
+
+    configured = _run_with_composition(
+        ["scan", "authorized.example", "--config", str(path)],
+        (DiagnosticSeverity.INFO, DiagnosticSeverity.WARNING),
+    )
+    overridden = _run_with_composition(
+        [
+            "scan",
+            "authorized.example",
+            "--config",
+            str(path),
+            "--log-level",
+            "error",
+        ],
+        (DiagnosticSeverity.WARNING,),
+    )
+
+    assert json.loads(configured[2])["severity"] == "WARNING"
+    assert overridden[0] == ExitCode.ACCEPTED
+    assert overridden[2] == ""
+
+
+def test_repeated_cli_calls_do_not_accumulate_logging_handlers() -> None:
+    first = _run_with_composition(
+        ["scan", "authorized.example", "--log-level", "info"],
+        (DiagnosticSeverity.INFO,),
+    )
+    second = _run_with_composition(
+        ["scan", "authorized.example", "--log-level", "info"],
+        (DiagnosticSeverity.INFO,),
+    )
+
+    assert first[2] == second[2]
+    assert first[2].count("\n") == second[2].count("\n") == 1
+
+
+def test_sink_failure_does_not_change_cli_exit_code_or_escape() -> None:
+    class RaisingSink:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def emit(self, event: DiagnosticEvent) -> None:
+            _ = event
+            self.calls += 1
+            raise RuntimeError("private sink failure")
+
+    sink = RaisingSink()
+    stdout = StringIO()
+    stderr = StringIO()
+
+    def composition(
+        profile: object,
+        injected: DiagnosticEventSink,
+    ) -> DiagnosticFakeOrchestrator:
+        _ = profile
+        return DiagnosticFakeOrchestrator(
+            injected,
+            (DiagnosticSeverity.INFO,),
+        )
+
+    code = main(
+        ["scan", "authorized.example", "--log-level", "info"],
+        composition_factory=composition,
+        diagnostic_sink=sink,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert code == ExitCode.ACCEPTED
+    assert stdout.getvalue().startswith("Scan completed\n")
+    assert stderr.getvalue() == ""
+    assert sink.calls == 1

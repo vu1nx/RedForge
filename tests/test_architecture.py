@@ -767,17 +767,18 @@ def test_scan_config_models_contain_no_tool_runtime_or_secret_fields() -> None:
     assert names.isdisjoint(forbidden)
 
 
-def test_cli_framework_is_confined_and_no_configuration_loader_was_added() -> None:
+def test_cli_framework_and_configuration_format_dependencies_are_confined() -> None:
     forbidden_imports = {
         "click",
         "typer",
         "rich",
         "yaml",
-        "tomllib",
         "dotenv",
     }
     for path in _SOURCE_ROOT.rglob("*.py"):
         assert _imports(path).isdisjoint(forbidden_imports), path
+        if path != _SOURCE_ROOT / "configuration" / "loader.py":
+            assert "tomllib" not in _imports(path), path
         if path != _SOURCE_ROOT / "cli" / "main.py":
             assert "argparse" not in _imports(path), path
 
@@ -786,15 +787,20 @@ def test_scan_orchestrator_has_no_adapter_tool_or_external_io_dependencies() -> 
     path = _SOURCE_ROOT / "application" / "orchestration.py"
     imports = _imports(path)
     forbidden = (
-        "redforge.adapters",
         "redforge.capabilities",
         "redforge.sdk.tool",
         "subprocess",
         "socket",
         "urllib",
-        "pathlib",
         "os",
     )
+    adapter_imports = {
+        name
+        for name in imports
+        if name == "redforge.adapters"
+        or name.startswith("redforge.adapters.")
+    }
+    assert adapter_imports <= {"redforge.adapters.observability"}
 
     assert not any(
         name == prefix or name.startswith(f"{prefix}.")
@@ -991,7 +997,6 @@ def test_cli_core_has_no_capability_adapter_tool_or_state_dependencies() -> None
     path = _SOURCE_ROOT / "cli" / "main.py"
     imports = _imports(path)
     forbidden = (
-        "redforge.adapters",
         "redforge.capabilities",
         "redforge.sdk.context",
         "redforge.sdk.state",
@@ -999,7 +1004,6 @@ def test_cli_core_has_no_capability_adapter_tool_or_state_dependencies() -> None
         "subprocess",
         "socket",
         "urllib",
-        "pathlib",
         "os",
     )
     assert not any(
@@ -1025,6 +1029,89 @@ def test_cli_core_has_no_capability_adapter_tool_or_state_dependencies() -> None
         assert forbidden_text not in source
 
 
+def test_lower_layers_do_not_import_configuration() -> None:
+    for package in (
+        "application",
+        "runtime",
+        "planning",
+        "adapters",
+        "capabilities",
+        "domain",
+        "sdk",
+    ):
+        for path in (_SOURCE_ROOT / package).rglob("*.py"):
+            imports = _imports(path)
+            assert not any(
+                name == "redforge.configuration"
+                or name.startswith("redforge.configuration.")
+                for name in imports
+            ), path
+
+
+def test_configuration_layer_has_no_runtime_or_external_io_dependencies() -> None:
+    forbidden_imports = (
+        "redforge.adapters",
+        "redforge.capabilities",
+        "redforge.cli",
+        "redforge.planning",
+        "redforge.runtime",
+        "subprocess",
+        "socket",
+        "urllib",
+        "http",
+        "requests",
+        "yaml",
+        "dotenv",
+        "importlib",
+    )
+    forbidden_source = (
+        "applicationcomposition",
+        "compositionproviders",
+        "os.environ",
+        "getenv",
+        "subprocess",
+        "socket.",
+        "urlopen",
+        "requests.",
+        "write_text(",
+        "write_bytes(",
+        "open(",
+        "entry_point",
+        "plugin",
+    )
+    for path in (_SOURCE_ROOT / "configuration").rglob("*.py"):
+        imports = _imports(path)
+        assert not any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for name in imports
+            for prefix in forbidden_imports
+        ), path
+        source = path.read_text(encoding="utf-8").lower()
+        for forbidden in forbidden_source:
+            assert forbidden not in source, path
+
+
+def test_composition_does_not_parse_configuration_files() -> None:
+    for path in (_SOURCE_ROOT / "composition").rglob("*.py"):
+        imports = _imports(path)
+        assert "tomllib" not in imports, path
+        assert not any(
+            name == "redforge.configuration"
+            or name.startswith("redforge.configuration.")
+            for name in imports
+        ), path
+
+
+def test_cli_consumes_typed_configuration_without_toml_decoding() -> None:
+    path = _SOURCE_ROOT / "cli" / "main.py"
+    imports = _imports(path)
+    source = path.read_text(encoding="utf-8").lower()
+
+    assert "tomllib" not in imports
+    assert "dict[str, object]" not in source
+    assert "_build_configuration" not in source
+
+
 def test_lower_layers_do_not_import_cli() -> None:
     for package in (
         "application",
@@ -1042,26 +1129,40 @@ def test_lower_layers_do_not_import_cli() -> None:
             ), path
 
 
-def test_cli_composition_is_separate_from_parser_and_has_no_hidden_provider() -> None:
+def test_application_composition_is_separate_from_cli_and_has_no_hidden_provider() -> None:
     main_source = (_SOURCE_ROOT / "cli" / "main.py").read_text(
         encoding="utf-8"
     )
     composition_source = (
-        _SOURCE_ROOT / "cli" / "composition.py"
+        _SOURCE_ROOT / "composition" / "application.py"
     ).read_text(encoding="utf-8")
 
-    assert "redforge.adapters" not in main_source
-    assert "VulnerabilityProvider" not in composition_source
+    assert "redforge.adapters.observability" in main_source
+    assert "LocalSubprocessToolRunner" not in main_source
     assert "NvdAdapter" not in composition_source
-    assert "vulnerability_provider=" not in composition_source
+    assert "redforge.composition" in main_source
+    assert not (_SOURCE_ROOT / "cli" / "composition.py").exists()
+    for forbidden in (
+        "os.environ",
+        "getenv",
+        "dotenv",
+        "service_locator",
+        "plugin",
+        "ScanConfig",
+        "PipelineStateKey",
+        ".execute(",
+        "risk_score",
+    ):
+        assert forbidden not in composition_source
 
 
 def test_cli_imports_have_no_top_level_calls_or_process_exit() -> None:
     for relative_path in (
         "cli/__init__.py",
         "cli/main.py",
-        "cli/composition.py",
         "cli/json_output.py",
+        "composition/__init__.py",
+        "composition/application.py",
     ):
         path = _SOURCE_ROOT / relative_path
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -1079,6 +1180,139 @@ def test_cli_imports_have_no_top_level_calls_or_process_exit() -> None:
     assert "sys.exit" not in (
         _SOURCE_ROOT / "cli" / "main.py"
     ).read_text(encoding="utf-8")
+
+
+def test_cli_concrete_adapter_usage_is_confined_to_diagnostic_logging() -> None:
+    for path in (_SOURCE_ROOT / "cli").glob("*.py"):
+        imports = _imports(path)
+        adapter_imports = {
+            name
+            for name in imports
+            if name == "redforge.adapters"
+            or name.startswith("redforge.adapters.")
+        }
+        assert adapter_imports <= {"redforge.adapters.observability"}, path
+        source = path.read_text(encoding="utf-8")
+        for forbidden in (
+            "LocalSubprocessToolRunner(",
+            "ToolRegistry(",
+            "CapabilityRegistry(",
+            "CapabilityFactoryRegistry(",
+            "ReadinessRegistry(",
+            "ToolRunnerReadinessProbe(",
+            "create_default_factory_registry(",
+            "create_default_registry(",
+        ):
+            assert forbidden not in source, path
+
+
+def test_observability_core_is_provider_neutral_and_side_effect_free() -> None:
+    forbidden_imports = (
+        "redforge.adapters",
+        "redforge.application",
+        "redforge.capabilities",
+        "redforge.cli",
+        "redforge.configuration",
+        "redforge.planning",
+        "redforge.runtime",
+        "logging",
+        "subprocess",
+        "socket",
+        "urllib",
+        "http",
+        "requests",
+        "pathlib",
+        "os",
+    )
+    forbidden_source = (
+        "basicconfig",
+        "getlogger",
+        "os.environ",
+        "getenv",
+        "stdout",
+        "stderr",
+        "executable_path",
+        "command",
+        "traceback",
+        "format_exc",
+        "default=str",
+        "__dict__",
+        "asdict",
+        "write_text",
+        "write_bytes",
+        "open(",
+        "context",
+    )
+    for path in (_SOURCE_ROOT / "observability").rglob("*.py"):
+        imports = _imports(path)
+        assert not any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for name in imports
+            for prefix in forbidden_imports
+        ), path
+        source = path.read_text(encoding="utf-8").lower()
+        for forbidden in forbidden_source:
+            assert forbidden not in source, path
+
+
+def test_python_logging_configuration_is_confined_and_local() -> None:
+    allowed = {
+        _SOURCE_ROOT / "adapters" / "observability.py",
+        _SOURCE_ROOT / "cli" / "main.py",
+    }
+    for path in _SOURCE_ROOT.rglob("*.py"):
+        imports = _imports(path)
+        if "logging" in imports:
+            assert path in allowed
+        source = path.read_text(encoding="utf-8")
+        for forbidden in (
+            "logging.basicConfig",
+            "logging.getLogger()",
+            "FileHandler(",
+            "SocketHandler(",
+            "HTTPHandler(",
+            "SysLogHandler(",
+        ):
+            assert forbidden not in source, path
+
+
+def test_diagnostic_logging_adapter_serializes_only_closed_event_contract() -> None:
+    path = _SOURCE_ROOT / "adapters" / "observability.py"
+    imports = _imports(path)
+    source = path.read_text(encoding="utf-8").lower()
+
+    assert "redforge.sdk.context" not in imports
+    assert "redforge.runtime" not in imports
+    assert "redforge.application" not in imports
+    for forbidden in (
+        "default=str",
+        "__dict__",
+        "asdict",
+        "traceback",
+        "format_exc",
+        "repr(",
+        "context",
+        "stdout",
+        "stderr",
+        "environment",
+        "executable_path",
+        "filehandler",
+        "sockethandler",
+        "httphandler",
+        "sysloghandler",
+    ):
+        assert forbidden not in source
+
+
+def test_result_json_renderer_is_independent_from_diagnostic_events() -> None:
+    path = _SOURCE_ROOT / "cli" / "json_output.py"
+    imports = _imports(path)
+
+    assert not any(
+        name == "redforge.observability"
+        or name.startswith("redforge.observability.")
+        for name in imports
+    )
 
 
 def test_cli_console_script_metadata_targets_public_main() -> None:

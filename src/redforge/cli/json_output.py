@@ -30,6 +30,13 @@ class JsonReasonCode(StrEnum):
     """Stable CLI-level reason codes not sourced from exception messages."""
 
     INVALID_TARGET = "invalid_target"
+    CONFIGURATION_FILE_UNAVAILABLE = "configuration_file_unavailable"
+    CONFIGURATION_PARSE_FAILED = "configuration_parse_failed"
+    CONFIGURATION_VERSION_MISSING = "configuration_version_missing"
+    CONFIGURATION_VERSION_UNSUPPORTED = "configuration_version_unsupported"
+    CONFIGURATION_FIELD_UNKNOWN = "configuration_field_unknown"
+    CONFIGURATION_VALUE_INVALID = "configuration_value_invalid"
+    CONFIGURATION_PROFILE_INCOMPATIBLE = "configuration_profile_incompatible"
     COMPOSITION_FAILED = "composition_failed"
     STATE_LIMIT_EXCEEDED = "state_limit_exceeded"
     DEADLINE_EXCEEDED = "deadline_exceeded"

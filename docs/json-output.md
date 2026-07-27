@@ -12,6 +12,11 @@ remains empty, and the process exit code is repeated in `exit_code`. Argparse
 syntax failures that occur before a valid output mode is established retain
 the human stderr behavior.
 
+When [structured observability](observability.md) is explicitly enabled,
+diagnostic JSON records use stderr. The final machine outcome remains exactly
+one document on stdout and retains this schema unchanged. Consumers that need
+only the outcome may ignore or redirect stderr.
+
 ## Schema version and fields
 
 `schema_version` is the integer `1`. It versions this machine-output contract
@@ -84,6 +89,14 @@ Readiness failures reuse accepted readiness reason codes such as
 `provider_absent`, and `probe_failed`. Other current CLI reason codes are
 `invalid_target`, `composition_failed`, `state_limit_exceeded`,
 `deadline_exceeded`, `interrupted`, and `internal_error`.
+Typed configuration failures add stable
+`configuration_file_unavailable`, `configuration_parse_failed`,
+`configuration_version_missing`, `configuration_version_unsupported`,
+`configuration_field_unknown`, `configuration_value_invalid`, and
+`configuration_profile_incompatible` codes. When `--output json` is explicit,
+configuration failure produces one sanitized `invalid_input` document on
+stdout; target, preset, runtime status, preflight, and policy fields remain
+null.
 
 State-limit policy includes only its canonical state-key name and bounded
 counts. Deadline policy includes only `type: "deadline"` and
@@ -98,5 +111,7 @@ The document is a control-plane summary. It never recursively serializes
 `ScanResult`, Context, execution history, evidence collections, provider or
 adapter objects, tool output, argv, environment values, exception details, or
 filesystem paths. RedForge provides no JSON Lines, JSON file output, report
-export, streaming, configuration-file loading, ownership verification, retry,
-or resume behavior.
+export, streaming, ownership verification, retry, or resume behavior. TOML
+configuration and this output schema have independent schema versions;
+configuration contents are never serialized into this document. Diagnostic
+events use a third independent schema and are never nested into this result.

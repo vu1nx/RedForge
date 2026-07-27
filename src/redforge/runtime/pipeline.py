@@ -5,6 +5,15 @@ from dataclasses import dataclass
 from typing import Any, TypeGuard, cast
 
 from redforge.domain.target import Target
+from redforge.observability import (
+    DiagnosticEvent,
+    DiagnosticEventSink,
+    DiagnosticEventType,
+    DiagnosticFields,
+    DiagnosticSeverity,
+    NullDiagnosticEventSink,
+    emit_safely,
+)
 from redforge.runtime.execution_policy import (
     DeadlinePhase,
     DeadlineViolation,
@@ -268,6 +277,7 @@ class Pipeline:
         target: Target | str | Context,
         *,
         policy: ExecutionPolicy | None = None,
+        diagnostic_sink: DiagnosticEventSink | None = None,
     ) -> PipelineResult:
         """Execute registered capabilities sequentially.
 
@@ -283,6 +293,11 @@ class Pipeline:
             target_id = target.identifier if isinstance(target, Target) else target
             context = Context(target_id=target_id)
         state = context.state
+        sink = (
+            diagnostic_sink
+            if diagnostic_sink is not None
+            else NullDiagnosticEventSink()
+        )
         execution_order = tuple(
             entry.capability.name for entry in self._entries
         )
@@ -304,6 +319,12 @@ class Pipeline:
         for entry in self._entries:
             capability = entry.capability
             runtime_id = entry.capability_id
+            diagnostic_id = (
+                runtime_id.value
+                if runtime_id is not None
+                else _safe_capability_id(capability.name)
+            )
+            _emit_capability_started(sink, diagnostic_id)
             try:
                 if policy is not None:
                     policy.check_deadline()
@@ -324,6 +345,16 @@ class Pipeline:
                 )
                 aggregate_status = combine_status(
                     aggregate_status,
+                    result.status,
+                )
+                _emit_policy_violation(
+                    sink,
+                    violation,
+                    diagnostic_id,
+                )
+                _emit_capability_terminal(
+                    sink,
+                    diagnostic_id,
                     result.status,
                 )
                 break
@@ -418,6 +449,17 @@ class Pipeline:
                     legacy_key, legacy_value = normalized.legacy
                     state[legacy_key] = legacy_value
 
+            if policy_violation is not None:
+                _emit_policy_violation(
+                    sink,
+                    policy_violation,
+                    diagnostic_id,
+                )
+            _emit_capability_terminal(
+                sink,
+                diagnostic_id,
+                result.status,
+            )
             if result.status in {Status.FAILURE, Status.ERROR}:
                 break
 
@@ -465,3 +507,97 @@ def _policy_failure(
             "phase": violation.phase.value,
         },
     )
+
+
+def _safe_capability_id(name: str) -> str | None:
+    try:
+        return normalize_capability_id(name).value
+    except (TypeError, ValueError):
+        return None
+
+
+def _emit_capability_started(
+    sink: DiagnosticEventSink,
+    capability_id: str | None,
+) -> None:
+    emit_safely(
+        sink,
+        DiagnosticEvent(
+            event_type=DiagnosticEventType.CAPABILITY_STARTED,
+            severity=DiagnosticSeverity.INFO,
+            message="Capability started",
+            fields=DiagnosticFields(capability_id=capability_id),
+        ),
+    )
+
+
+def _emit_capability_terminal(
+    sink: DiagnosticEventSink,
+    capability_id: str | None,
+    status: Status,
+) -> None:
+    event_type, severity, message = {
+        Status.SUCCESS: (
+            DiagnosticEventType.CAPABILITY_COMPLETED,
+            DiagnosticSeverity.INFO,
+            "Capability completed",
+        ),
+        Status.PARTIAL: (
+            DiagnosticEventType.CAPABILITY_PARTIAL,
+            DiagnosticSeverity.WARNING,
+            "Capability completed partially",
+        ),
+        Status.FAILURE: (
+            DiagnosticEventType.CAPABILITY_FAILED,
+            DiagnosticSeverity.ERROR,
+            "Capability failed",
+        ),
+        Status.ERROR: (
+            DiagnosticEventType.CAPABILITY_ERROR,
+            DiagnosticSeverity.ERROR,
+            "Capability error",
+        ),
+    }[status]
+    emit_safely(
+        sink,
+        DiagnosticEvent(
+            event_type=event_type,
+            severity=severity,
+            message=message,
+            fields=DiagnosticFields(
+                capability_id=capability_id,
+                runtime_status=status.name,
+            ),
+        ),
+    )
+
+
+def _emit_policy_violation(
+    sink: DiagnosticEventSink,
+    violation: ExecutionPolicyViolation,
+    capability_id: str | None,
+) -> None:
+    if isinstance(violation, StateLimitViolation):
+        event = DiagnosticEvent(
+            event_type=DiagnosticEventType.POLICY_LIMIT_EXCEEDED,
+            severity=DiagnosticSeverity.ERROR,
+            message="State limit exceeded",
+            fields=DiagnosticFields(
+                capability_id=capability_id,
+                policy_type="state_limit",
+                state_key=violation.state_key.name,
+                observed=violation.observed,
+                allowed=violation.allowed,
+            ),
+        )
+    else:
+        event = DiagnosticEvent(
+            event_type=DiagnosticEventType.POLICY_DEADLINE_EXCEEDED,
+            severity=DiagnosticSeverity.ERROR,
+            message="Execution deadline exceeded",
+            fields=DiagnosticFields(
+                capability_id=capability_id,
+                policy_type="deadline",
+            ),
+        )
+    emit_safely(sink, event)

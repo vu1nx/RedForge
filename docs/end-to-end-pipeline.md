@@ -34,7 +34,8 @@ The application-facing [Scan Configuration](scan-configuration.md) now provides
 the validated path into this boundary:
 
 ```text
-Raw application input
+explicit TOML + CLI target/overrides
+        -> typed configuration
         -> ScanTarget
         -> ScanScope
         -> ScanConfig
@@ -139,15 +140,22 @@ subprocess, external binaries, credentials, or live targets.
 
 RedForge remains a library runtime beneath a thin [minimal CLI](cli.md). The
 [application orchestrator](application-orchestration.md) owns one-shot
-execution of a validated config through this runtime; the CLI owns only
-argument parsing, preset selection, explicit composition, and result rendering.
+execution of a validated config through this runtime. The
+[typed configuration](configuration.md) layer owns strict TOML parsing and
+pure translation; the CLI owns argv overrides and result rendering, while
+`ApplicationComposition` owns all wiring.
+An execution-scoped [diagnostic sink](observability.md) may observe bounded
+phase, capability-status, and policy summaries. It never receives Context
+state or evidence, and sink failure cannot affect this pipeline.
 Human output is the default; deterministic
 [schema-versioned JSON](json-output.md) is an alternate bounded renderer over
 the same typed application outcome.
 Authorization decisions remain the operator's responsibility. Configuration
-files, long-running orchestration, scheduling, persistence, retries, parallel
-execution, dynamic replanning, limit-driven tool flags, forceful cancellation,
-and report export remain outside the boundary. Canonical publication limits
+files never contain the target, provider credentials, executable paths, or
+provider bindings. Long-running orchestration, scheduling, persistence,
+retries, parallel execution, dynamic replanning, limit-driven tool flags,
+forceful cancellation, and report export remain outside the boundary.
+Canonical publication limits
 and safe step-boundary deadlines are described in
 [Scan Limits](scan-limits.md).
 

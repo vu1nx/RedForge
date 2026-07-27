@@ -1,10 +1,12 @@
 """Thin command-line adapter over RedForge application contracts."""
 
 import argparse
+import logging
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
+from pathlib import Path
 from typing import NoReturn, Protocol, TextIO, TypeGuard, cast
 
 from redforge.application import (
@@ -25,6 +27,20 @@ from redforge.cli.json_output import (
     build_preflight_json_outcome,
     render_json_outcome,
 )
+from redforge.composition import CompositionProfile
+from redforge.configuration import (
+    ConfigurationError,
+    ObservabilityLevel,
+    OutputFormat,
+    RedForgeConfiguration,
+    ScanPreset,
+    load_configuration,
+    resolve_configuration,
+)
+from redforge.observability import (
+    DiagnosticEventSink,
+    NullDiagnosticEventSink,
+)
 from redforge.planning import PipelineBuildError
 from redforge.runtime import DeadlineViolation, StateLimitViolation
 
@@ -40,20 +56,6 @@ class ExitCode(IntEnum):
     INTERRUPTED = 130
 
 
-class ScanPreset(StrEnum):
-    """Application scan preset exposed by the first CLI."""
-
-    RECONNAISSANCE = "reconnaissance"
-    FULL = "full"
-
-
-class OutputFormat(StrEnum):
-    """Stable terminal representation selected explicitly by the operator."""
-
-    HUMAN = "human"
-    JSON = "json"
-
-
 class HelpScope(StrEnum):
     """Parser help page requested without process termination."""
 
@@ -66,9 +68,11 @@ class CliOptions:
     """Typed parser output without argparse internals."""
 
     target: str | None
-    preset: ScanPreset = ScanPreset.RECONNAISSANCE
-    output_format: OutputFormat = OutputFormat.HUMAN
-    allow_partial_results: bool = False
+    config_paths: tuple[Path, ...] = ()
+    preset: ScanPreset | None = None
+    output_format: OutputFormat | None = None
+    allow_partial_results: bool | None = None
+    log_level: ObservabilityLevel | None = None
     help_scope: HelpScope | None = None
 
 
@@ -96,6 +100,11 @@ class ScanExecutor(Protocol):
 
 
 type OrchestratorFactory = Callable[[], ScanExecutor]
+type CompositionFactory = Callable[
+    [CompositionProfile, DiagnosticEventSink],
+    ScanExecutor,
+]
+type ConfigurationLoader = Callable[[Path], RedForgeConfiguration]
 
 
 class _NonExitingParser(argparse.ArgumentParser):
@@ -110,21 +119,36 @@ def _configure_scan_parser(parser: argparse.ArgumentParser) -> None:
         help="Authorized DNS root to assess; URLs, IPs, and wildcards are invalid.",
     )
     parser.add_argument(
+        "--config",
+        action="append",
+        default=None,
+        metavar="PATH",
+        help="Load one explicit schema-versioned TOML configuration file.",
+    )
+    parser.add_argument(
         "--preset",
         choices=tuple(item.value for item in ScanPreset),
-        default=ScanPreset.RECONNAISSANCE.value,
+        default=None,
         help="Scan preset: reconnaissance (default) or full.",
     )
     parser.add_argument(
         "--output",
         choices=tuple(item.value for item in OutputFormat),
-        default=OutputFormat.HUMAN.value,
+        default=None,
         help="Output format: human (default) or versioned JSON.",
     )
     parser.add_argument(
         "--allow-partial-results",
-        action="store_true",
+        action="store_const",
+        const=True,
+        default=None,
         help="Accept a PARTIAL runtime result; no retry is performed.",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=tuple(item.value for item in ObservabilityLevel),
+        default=None,
+        help="Diagnostic level: debug, info, warning, error, or off.",
     )
     parser.add_argument(
         "-h",
@@ -173,9 +197,9 @@ def _build_scan_help_parser() -> argparse.ArgumentParser:
         add_help=False,
         description="Prepare, preflight, and execute one authorized scan.",
         epilog=(
-            "Limits use validated application defaults and reject oversized "
-            "canonical publications. Only scan systems you are explicitly "
-            "authorized to assess. Exit codes: 0 accepted, 2 invalid input, "
+            "Only scan systems you are explicitly authorized to assess. "
+            "Validated application limits reject oversized canonical "
+            "publications. Exit codes: 0 accepted, 2 invalid input, "
             "3 not ready, 4 completed but not accepted, 5 internal error, "
             "130 interrupted."
         ),
@@ -200,19 +224,56 @@ def parse_cli_args(
     if cast(bool, namespace.help_requested):
         return CliOptions(target=None, help_scope=HelpScope.SCAN)
     target = cast(str | None, namespace.target)
+    raw_config_paths = cast(list[str] | None, namespace.config)
+    config_paths = tuple(
+        Path(item) for item in (raw_config_paths or [])
+    )
+    if len(config_paths) > 1:
+        raise CliUsageError(
+            "the config option may be specified only once",
+            output_format=(
+                OutputFormat(cast(str, namespace.output))
+                if namespace.output is not None
+                else None
+            ),
+            preset=(
+                ScanPreset(cast(str, namespace.preset))
+                if namespace.preset is not None
+                else None
+            ),
+        )
     if target is None:
         raise CliUsageError(
             "scan target is required",
-            output_format=OutputFormat(cast(str, namespace.output)),
-            preset=ScanPreset(cast(str, namespace.preset)),
+            output_format=(
+                OutputFormat(cast(str, namespace.output))
+                if namespace.output is not None
+                else None
+            ),
+            preset=(
+                ScanPreset(cast(str, namespace.preset))
+                if namespace.preset is not None
+                else None
+            ),
         )
     return CliOptions(
         target=target,
-        preset=ScanPreset(cast(str, namespace.preset)),
-        output_format=OutputFormat(cast(str, namespace.output)),
-        allow_partial_results=cast(
-            bool,
-            namespace.allow_partial_results,
+        config_paths=config_paths,
+        preset=(
+            ScanPreset(cast(str, namespace.preset))
+            if namespace.preset is not None
+            else None
+        ),
+        output_format=(
+            OutputFormat(cast(str, namespace.output))
+            if namespace.output is not None
+            else None
+        ),
+        allow_partial_results=cast(bool | None, namespace.allow_partial_results),
+        log_level=(
+            ObservabilityLevel(cast(str, namespace.log_level))
+            if namespace.log_level is not None
+            else None
         ),
     )
 
@@ -221,15 +282,14 @@ def create_scan_config(options: CliOptions) -> ScanConfig:
     """Map typed CLI options through canonical application constructors."""
     if options.target is None:
         raise CliUsageError("scan target is required")
-    constructor = (
-        ScanConfig.for_reconnaissance
-        if options.preset is ScanPreset.RECONNAISSANCE
-        else ScanConfig.for_full_assessment
-    )
-    return constructor(
-        options.target,
-        allow_partial_results=options.allow_partial_results,
-    )
+    return resolve_configuration(
+        target=options.target,
+        configuration=RedForgeConfiguration.default(),
+        preset_override=options.preset,
+        allow_partial_results_override=options.allow_partial_results,
+        output_override=options.output_format,
+        observability_level_override=options.log_level,
+    ).scan_config
 
 
 def render_scan_result(
@@ -299,28 +359,64 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     orchestrator_factory: OrchestratorFactory | None = None,
+    composition_factory: CompositionFactory | None = None,
+    configuration_loader: ConfigurationLoader | None = None,
+    diagnostic_sink: DiagnosticEventSink | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
     """Run the reusable CLI boundary and return a stable integer exit code."""
     output = stdout if stdout is not None else sys.stdout
     errors = stderr if stderr is not None else sys.stderr
-    factory = (
-        orchestrator_factory
-        if orchestrator_factory is not None
-        else _default_orchestrator_factory
-    )
+    loader = configuration_loader or load_configuration
     options: CliOptions | None = None
     config: ScanConfig | None = None
+    effective_output: OutputFormat | None = None
+    effective_preset: ScanPreset | None = None
     try:
         options = parse_cli_args(argv)
+        effective_output = options.output_format
         if options.help_scope is HelpScope.ROOT:
             output.write(f"{build_parser().format_help()}\n")
             return int(ExitCode.ACCEPTED)
         if options.help_scope is HelpScope.SCAN:
             output.write(f"{_build_scan_help_parser().format_help()}\n")
             return int(ExitCode.ACCEPTED)
-        config = create_scan_config(options)
+        if options.target is None:
+            raise CliUsageError("scan target is required")
+        configuration = (
+            loader(options.config_paths[0])
+            if options.config_paths
+            else RedForgeConfiguration.default()
+        )
+        effective_output = options.output_format or configuration.output.format
+        effective_preset = options.preset or configuration.scan.preset
+        resolved = resolve_configuration(
+            target=options.target,
+            configuration=configuration,
+            preset_override=options.preset,
+            allow_partial_results_override=options.allow_partial_results,
+            output_override=options.output_format,
+            observability_level_override=options.log_level,
+        )
+        config = resolved.scan_config
+        effective_output = resolved.output_format
+        effective_preset = resolved.scan_preset
+        sink = (
+            diagnostic_sink
+            if diagnostic_sink is not None
+            else _create_cli_diagnostic_sink(
+                resolved.observability_level,
+                errors,
+            )
+        )
+        factory = (
+            orchestrator_factory
+            if orchestrator_factory is not None
+            else lambda: (
+                composition_factory or _default_orchestrator_factory
+            )(resolved.composition_profile, sink)
+        )
         result = run_scan_command(
             config,
             orchestrator_factory=factory,
@@ -330,18 +426,18 @@ def main(
             if result.accepted
             else ExitCode.NOT_ACCEPTED
         )
-        if options.output_format is OutputFormat.JSON:
+        if effective_output is OutputFormat.JSON:
             _write_json(
                 output,
                 build_completed_json_outcome(
                     result,
-                    preset=options.preset.value,
+                    preset=resolved.scan_preset.value,
                     exit_code=int(exit_code),
                 ),
             )
             return int(exit_code)
         output.write(
-            f"{render_scan_result(result, preset=options.preset)}\n"
+            f"{render_scan_result(result, preset=resolved.scan_preset)}\n"
         )
         return int(exit_code)
     except CliUsageError as error:
@@ -363,8 +459,22 @@ def main(
             return int(ExitCode.INVALID_INPUT)
         errors.write(f"Invalid command: {error}\n")
         return int(ExitCode.INVALID_INPUT)
+    except ConfigurationError as error:
+        if effective_output is OutputFormat.JSON:
+            _write_json(
+                output,
+                build_error_json_outcome(
+                    outcome=JsonOutcomeType.INVALID_INPUT,
+                    exit_code=int(ExitCode.INVALID_INPUT),
+                    reason_code=JsonReasonCode(error.reason_code.value),
+                    message=str(error),
+                ),
+            )
+            return int(ExitCode.INVALID_INPUT)
+        errors.write(f"Configuration error\n{error}\n")
+        return int(ExitCode.INVALID_INPUT)
     except ScanConfigurationError:
-        if _json_selected(options):
+        if _json_selected(effective_output):
             _write_json(
                 output,
                 build_error_json_outcome(
@@ -372,28 +482,36 @@ def main(
                     exit_code=int(ExitCode.INVALID_INPUT),
                     reason_code=JsonReasonCode.INVALID_TARGET,
                     message="invalid scan target",
-                    preset=options.preset.value,
+                    preset=(
+                        effective_preset.value
+                        if effective_preset is not None
+                        else None
+                    ),
                 ),
             )
             return int(ExitCode.INVALID_INPUT)
         errors.write("Invalid input: scan target or options are invalid\n")
         return int(ExitCode.INVALID_INPUT)
     except ScanPreflightError as error:
-        if _json_selected(options) and config is not None:
+        if (
+            _json_selected(effective_output)
+            and config is not None
+            and effective_preset is not None
+        ):
             _write_json(
                 output,
                 build_preflight_json_outcome(
                     error.result,
                     exit_code=int(ExitCode.NOT_READY),
                     target=config.scope.root.value,
-                    preset=options.preset.value,
+                    preset=effective_preset.value,
                 ),
             )
             return int(ExitCode.NOT_READY)
         errors.write(f"{render_preflight_result(error.result)}\n")
         return int(ExitCode.NOT_READY)
     except PipelineBuildError:
-        if _json_selected(options) and config is not None:
+        if _json_selected(effective_output) and config is not None:
             _write_json(
                 output,
                 build_error_json_outcome(
@@ -402,14 +520,18 @@ def main(
                     reason_code=JsonReasonCode.COMPOSITION_FAILED,
                     message="scan composition is unavailable",
                     target=config.scope.root.value,
-                    preset=options.preset.value,
+                    preset=(
+                        effective_preset.value
+                        if effective_preset is not None
+                        else None
+                    ),
                 ),
             )
             return int(ExitCode.NOT_READY)
         errors.write("Scan could not start\nComposition is invalid\n")
         return int(ExitCode.NOT_READY)
     except KeyboardInterrupt:
-        if _json_selected(options):
+        if _json_selected(effective_output):
             _write_json(
                 output,
                 build_error_json_outcome(
@@ -423,7 +545,7 @@ def main(
         errors.write("Scan interrupted\n")
         return int(ExitCode.INTERRUPTED)
     except Exception:
-        if _json_selected(options):
+        if _json_selected(effective_output):
             _write_json(
                 output,
                 build_error_json_outcome(
@@ -438,20 +560,51 @@ def main(
         return int(ExitCode.INTERNAL_ERROR)
 
 def _json_selected(
-    options: CliOptions | None,
-) -> TypeGuard[CliOptions]:
-    return (
-        options is not None
-        and options.output_format is OutputFormat.JSON
-    )
+    output_format: OutputFormat | None,
+) -> TypeGuard[OutputFormat]:
+    return output_format is OutputFormat.JSON
 
 
 def _write_json(output: TextIO, outcome: JsonScanOutcome) -> None:
     output.write(f"{render_json_outcome(outcome)}\n")
 
 
-def _default_orchestrator_factory() -> ScanOrchestrator:
+def _default_orchestrator_factory(
+    profile: CompositionProfile,
+    diagnostic_sink: DiagnosticEventSink,
+) -> ScanOrchestrator:
     """Import and construct production composition only when a scan is run."""
-    from redforge.cli.composition import create_cli_orchestrator
+    from redforge.composition import ApplicationComposition
 
-    return create_cli_orchestrator()
+    return ApplicationComposition(
+        profile,
+        diagnostic_sink=diagnostic_sink,
+    ).create_orchestrator()
+
+
+def _create_cli_diagnostic_sink(
+    level: ObservabilityLevel,
+    stream: TextIO,
+) -> DiagnosticEventSink:
+    if level is ObservabilityLevel.OFF:
+        return NullDiagnosticEventSink()
+    from redforge.adapters.observability import (
+        PythonLoggingDiagnosticSink,
+    )
+
+    numeric_level = {
+        ObservabilityLevel.DEBUG: logging.DEBUG,
+        ObservabilityLevel.INFO: logging.INFO,
+        ObservabilityLevel.WARNING: logging.WARNING,
+        ObservabilityLevel.ERROR: logging.ERROR,
+    }[level]
+    logger = logging.Logger(
+        "redforge.cli.diagnostics",
+        level=numeric_level,
+    )
+    logger.propagate = False
+    handler = logging.StreamHandler(stream)
+    handler.setLevel(numeric_level)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+    return PythonLoggingDiagnosticSink(logger)

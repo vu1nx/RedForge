@@ -134,6 +134,9 @@ class TechnologyDetectionCapability(Capability):
                 "out_of_scope_count": response.out_of_scope_count,
                 "duplicate_count": response.duplicate_count,
                 "truncated": response.truncated,
+                "partial_reasons": tuple(
+                    reason.value for reason in response.partial_reasons
+                ),
             },
             publications=publications,
         )
@@ -169,6 +172,7 @@ class TechnologyDetectionCapability(Capability):
                 "out_of_scope_count": 0,
                 "duplicate_count": 0,
                 "truncated": False,
+                "partial_reasons": (),
             },
             publications=(
                 StatePublication(

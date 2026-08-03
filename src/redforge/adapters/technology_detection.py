@@ -14,9 +14,11 @@ from redforge.domain.http_probe import normalize_http_url
 from redforge.domain.scan_scope import ExactNetworkTarget
 from redforge.domain.technology import Technology
 from redforge.sdk.technology_detection import (
+    TechnologyDetectionPartialReason,
     TechnologyDetectionProvider,
     TechnologyDetectionProviderResult,
     TechnologyDetectionProviderStatus,
+    TechnologyDetectionResult,
 )
 from redforge.sdk.tool import (
     ToolDefinition,
@@ -248,6 +250,37 @@ def _string_values(
     return tuple(dict.fromkeys(normalized)), invalid
 
 
+def _version_values(value: object) -> tuple[tuple[str, ...], int]:
+    """Normalize scalar versions emitted by WhatWeb 0.6.4 plugins."""
+    if value is None:
+        return (), 0
+    raw_values: tuple[object, ...] = (
+        tuple(cast(list[object], value))
+        if isinstance(value, list)
+        else (value,)
+    )
+    normalized: list[str] = []
+    invalid = 0
+    for item in raw_values:
+        if isinstance(item, str):
+            candidate: object = item
+        elif (
+            isinstance(item, int)
+            and not isinstance(item, bool)
+            or isinstance(item, float)
+            and math.isfinite(item)
+        ):
+            candidate = str(item)
+        else:
+            candidate = None
+        text = _valid_text(candidate, maximum=_MAX_VERSION_LENGTH)
+        if text is None:
+            invalid += 1
+        else:
+            normalized.append(text)
+    return tuple(dict.fromkeys(normalized)), invalid
+
+
 def _plugin_technologies(
     plugin_name: object,
     plugin_data: object,
@@ -275,10 +308,7 @@ def _plugin_technologies(
         versions = ()
         invalid = 0
     else:
-        versions, invalid = _string_values(
-            raw_versions,
-            maximum=_MAX_VERSION_LENGTH,
-        )
+        versions, invalid = _version_values(raw_versions)
         if not versions:
             return (), invalid or 1
     if not versions:
@@ -587,6 +617,24 @@ class WhatWebTechnologyDetectionProvider:
         else:
             status = TechnologyDetectionProviderStatus.SUCCESS
             message = None
+        partial_reasons: list[TechnologyDetectionPartialReason] = []
+        if status is TechnologyDetectionProviderStatus.PARTIAL:
+            if result.status is ToolExecutionStatus.TIMEOUT:
+                partial_reasons.append(
+                    TechnologyDetectionPartialReason.EXECUTION_TIMEOUT
+                )
+            if parsed.malformed_record_count:
+                partial_reasons.append(
+                    TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED
+                )
+            if parsed.out_of_scope_count:
+                partial_reasons.append(
+                    TechnologyDetectionPartialReason.UNASSOCIATED_RECORDS_SKIPPED
+                )
+            if output_truncated:
+                partial_reasons.append(
+                    TechnologyDetectionPartialReason.OUTPUT_TRUNCATED
+                )
         return TechnologyDetectionProviderResult(
             technologies=parsed.technologies,
             status=status,
@@ -595,12 +643,12 @@ class WhatWebTechnologyDetectionProvider:
             out_of_scope_count=parsed.out_of_scope_count,
             duplicate_count=parsed.duplicate_count,
             truncated=output_truncated,
+            partial_reasons=tuple(partial_reasons),
         )
 
 
 # Compatibility names retained without a second adapter implementation.
 TechnologyDetectionAdapter = WhatWebTechnologyDetectionProvider
-TechnologyDetectionResult = TechnologyDetectionProviderResult
 TechnologyDetector = TechnologyDetectionProvider
 
 __all__ = [

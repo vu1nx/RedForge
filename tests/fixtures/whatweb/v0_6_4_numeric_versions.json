@@ -1,0 +1,26 @@
+[
+  {
+    "target": "https://www.example.com/",
+    "http_status": 200,
+    "request_config": {},
+    "plugins": {
+      "Advanced-Guestbook": {
+        "version": [
+          2.2
+        ]
+      },
+      "Apache-Struts": {
+        "certainty": 25,
+        "version": [
+          1,
+          2
+        ]
+      },
+      "nginx": {
+        "version": [
+          "1.24"
+        ]
+      }
+    }
+  }
+]

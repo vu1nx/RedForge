@@ -93,6 +93,14 @@ are validated. Raw JSON, HTML, headers, cookies, request configuration,
 stdout, stderr, argv, environment, executable paths, and output paths are not
 published.
 
+WhatWeb 0.6.4 serializes plugin versions using their native JSON scalar type.
+RedForge accepts bounded string, integer, and finite floating-point version
+values and normalizes numeric versions to strings in the provider-neutral
+`Technology` model using Python's locale-independent, deterministic scalar
+representation. Booleans, non-finite numbers, mappings, nested collections,
+control characters, and oversized values remain rejected. Other plugin
+evidence remains string-only and bounded.
+
 Every record target must equal one canonical requested endpoint URL. There is
 no hostname-only fallback, suffix matching, parent-domain widening, redirect
 association, or acceptance of unrequested paths. The same technology on
@@ -119,6 +127,19 @@ Tool ERROR -> Provider ERROR
 Diagnostics are fixed or count-only and never include target URLs, technology
 payloads, JSON, stdout, stderr, argv, environment, local paths, or credentials.
 There is no retry or second invocation after timeout.
+
+Usable partial provider results also carry an immutable, typed, deterministic
+tuple of safe reason codes: `execution_timeout`,
+`malformed_records_skipped`, `unassociated_records_skipped`, and
+`output_truncated`. Only applicable codes are present. The capability copies
+their string values into result metadata so execution history can explain a
+PARTIAL status without retaining endpoints, technology names, process output,
+temporary paths, or exception text.
+
+The aggregate status retained for the first Kali execution does not identify
+which safe reason occurred, so that historical PARTIAL result cannot be
+attributed conclusively. A controlled real Kali revalidation using the new
+reason metadata remains pending.
 
 Provider `SUCCESS` maps to capability `SUCCESS`. `PARTIAL` with evidence maps
 to capability `PARTIAL` and publishes; `PARTIAL` without evidence and provider

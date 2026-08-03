@@ -18,6 +18,21 @@ class TechnologyDetectionProviderStatus(StrEnum):
     ERROR = "error"
 
 
+class TechnologyDetectionPartialReason(StrEnum):
+    """Bounded provider-neutral reasons for usable partial evidence."""
+
+    EXECUTION_TIMEOUT = "execution_timeout"
+    MALFORMED_RECORDS_SKIPPED = "malformed_records_skipped"
+    UNASSOCIATED_RECORDS_SKIPPED = "unassociated_records_skipped"
+    OUTPUT_TRUNCATED = "output_truncated"
+
+
+_PARTIAL_REASON_ORDER = {
+    reason: index
+    for index, reason in enumerate(TechnologyDetectionPartialReason)
+}
+
+
 @dataclass(frozen=True, slots=True)
 class TechnologyDetectionProviderResult:
     """Sanitized immutable technology evidence and parse metadata."""
@@ -31,6 +46,7 @@ class TechnologyDetectionProviderResult:
     out_of_scope_count: int = 0
     duplicate_count: int = 0
     truncated: bool = False
+    partial_reasons: tuple[TechnologyDetectionPartialReason, ...] = ()
 
     def __post_init__(self) -> None:
         technologies = cast(object, self.technologies)
@@ -63,6 +79,34 @@ class TechnologyDetectionProviderResult:
                 raise ValueError(f"{label} must be a non-negative integer")
         if not isinstance(cast(object, self.truncated), bool):
             raise TypeError("technology detection truncation flag must be boolean")
+        partial_reasons = cast(object, self.partial_reasons)
+        if not isinstance(partial_reasons, tuple) or not all(
+            isinstance(reason, TechnologyDetectionPartialReason)
+            for reason in cast(tuple[object, ...], partial_reasons)
+        ):
+            raise TypeError(
+                "technology detection partial reasons must be an immutable tuple"
+            )
+        reasons = cast(
+            tuple[TechnologyDetectionPartialReason, ...], partial_reasons
+        )
+        if (
+            reasons
+            and self.status is not TechnologyDetectionProviderStatus.PARTIAL
+        ):
+            raise ValueError(
+                "technology detection partial reasons require partial status"
+            )
+        object.__setattr__(
+            self,
+            "partial_reasons",
+            tuple(
+                sorted(
+                    set(reasons),
+                    key=_PARTIAL_REASON_ORDER.__getitem__,
+                )
+            ),
+        )
 
 
 class TechnologyDetectionProvider(Protocol):
@@ -74,3 +118,6 @@ class TechnologyDetectionProvider(Protocol):
     ) -> TechnologyDetectionProviderResult:
         """Detect technologies on one immutable collection of endpoints."""
         ...
+
+
+TechnologyDetectionResult = TechnologyDetectionProviderResult

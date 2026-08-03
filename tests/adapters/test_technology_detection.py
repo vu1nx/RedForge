@@ -20,7 +20,10 @@ from redforge.adapters import (
 )
 from redforge.domain.endpoint import Endpoint
 from redforge.sdk import (
+    TechnologyDetectionPartialReason,
+    TechnologyDetectionProviderResult,
     TechnologyDetectionProviderStatus,
+    TechnologyDetectionResult,
     ToolDefinition,
     ToolExecutionResult,
     ToolExecutionStatus,
@@ -31,6 +34,12 @@ from redforge.testing import FakeToolRunner
 
 FIXTURE_PATH = (
     Path(__file__).parents[1] / "fixtures" / "whatweb" / "multiple_targets.json"
+)
+WHATWEB_0_6_4_FIXTURE_PATH = (
+    Path(__file__).parents[1]
+    / "fixtures"
+    / "whatweb"
+    / "v0_6_4_numeric_versions.json"
 )
 
 
@@ -124,6 +133,37 @@ def test_configuration_is_frozen_slotted_and_has_no_expansive_fields() -> None:
             "plugin_path",
         }
     )
+
+
+def test_partial_reasons_are_typed_deduplicated_and_deterministic() -> None:
+    response = TechnologyDetectionProviderResult(
+        status=TechnologyDetectionProviderStatus.PARTIAL,
+        partial_reasons=(
+            TechnologyDetectionPartialReason.OUTPUT_TRUNCATED,
+            TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+            TechnologyDetectionPartialReason.OUTPUT_TRUNCATED,
+        ),
+    )
+
+    assert response.partial_reasons == (
+        TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+        TechnologyDetectionPartialReason.OUTPUT_TRUNCATED,
+    )
+    with pytest.raises(TypeError, match="immutable tuple"):
+        TechnologyDetectionProviderResult(
+            status=TechnologyDetectionProviderStatus.PARTIAL,
+            partial_reasons=["output_truncated"],  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="require partial status"):
+        TechnologyDetectionProviderResult(
+            partial_reasons=(
+                TechnologyDetectionPartialReason.OUTPUT_TRUNCATED,
+            ),
+        )
+
+
+def test_technology_detection_result_is_the_sdk_compatibility_alias() -> None:
+    assert TechnologyDetectionResult is TechnologyDetectionProviderResult
 
 
 @pytest.mark.parametrize(
@@ -353,6 +393,104 @@ def test_unknown_fields_are_ignored_and_duplicates_are_counted() -> None:
     assert response.duplicate_count == 1
 
 
+def test_whatweb_0_6_4_numeric_versions_are_clean_valid_evidence() -> None:
+    provider, _ = _provider(
+        _result(stdout=WHATWEB_0_6_4_FIXTURE_PATH.read_text(encoding="utf-8"))
+    )
+
+    response = provider.detect(
+        (Endpoint("www.example.com", 443, "https", "/"),)
+    )
+
+    assert response.status is TechnologyDetectionProviderStatus.SUCCESS
+    assert response.malformed_record_count == 0
+    assert response.partial_reasons == ()
+    assert {
+        (technology.name, technology.version)
+        for technology in response.technologies
+    } == {
+        ("Advanced-Guestbook", "2.2"),
+        ("Apache-Struts", "1"),
+        ("Apache-Struts", "2"),
+        ("nginx", "1.24"),
+    }
+
+
+@pytest.mark.parametrize(
+    ("version", "normalized"),
+    [
+        ("1.24", "1.24"),
+        (42, "42"),
+        (-1, "-1"),
+        (1.0, "1.0"),
+        (1e20, "1e+20"),
+    ],
+)
+def test_supported_version_scalars_have_stable_normalization(
+    version: str | int | float,
+    normalized: str,
+) -> None:
+    output = json.dumps(
+        [
+            {
+                "target": "https://www.example.com/",
+                "plugins": {"Example": {"version": [version]}},
+            }
+        ]
+    )
+    provider, _ = _provider(_result(stdout=output))
+
+    response = provider.detect(
+        (Endpoint("www.example.com", 443, "https", "/"),)
+    )
+
+    assert response.status is TechnologyDetectionProviderStatus.SUCCESS
+    assert tuple(item.version for item in response.technologies) == (
+        normalized,
+    )
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        True,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        {"nested": "mapping"},
+        [[1]],
+        "bad\u0001value",
+        "v" * 129,
+        10**200,
+    ],
+)
+def test_unsupported_version_values_remain_strictly_rejected(
+    version: object,
+) -> None:
+    output = json.dumps(
+        [
+            {
+                "target": "https://www.example.com/",
+                "plugins": {
+                    "Valid": {"version": ["1.0"]},
+                    "Rejected": {"version": version},
+                },
+            }
+        ]
+    )
+    provider, _ = _provider(_result(stdout=output))
+
+    response = provider.detect(
+        (Endpoint("www.example.com", 443, "https", "/"),)
+    )
+
+    assert response.status is TechnologyDetectionProviderStatus.PARTIAL
+    assert tuple(item.name for item in response.technologies) == ("Valid",)
+    assert response.partial_reasons == (
+        TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED,
+    )
+
+
 @pytest.mark.parametrize(
     "target",
     [
@@ -392,7 +530,7 @@ def test_exact_target_association_rejects_unknown_targets(target: str) -> None:
         ),
         (
             '[{"target":"https://www.example.com/",'
-            '"plugins":{"nginx":{"version":42}}}]'
+            '"plugins":{"nginx":{"version":true}}}]'
         ),
         (
             '[{"target":"https://www.example.com/",'
@@ -440,6 +578,63 @@ def test_valid_plus_malformed_output_is_partial() -> None:
 
     assert response.status is TechnologyDetectionProviderStatus.PARTIAL
     assert len(response.technologies) == 1
+    assert response.malformed_record_count == 1
+    assert response.partial_reasons == (
+        TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED,
+    )
+
+
+def test_valid_plus_unassociated_output_is_partial() -> None:
+    output = json.dumps(
+        [
+            {
+                "target": "https://www.example.com/",
+                "plugins": {"nginx": {"version": ["1.24"]}},
+            },
+            {
+                "target": "https://attacker.test/",
+                "plugins": {"nginx": {"version": ["1.24"]}},
+            },
+        ]
+    )
+    provider, _ = _provider(_result(stdout=output))
+
+    response = provider.detect(
+        (Endpoint("www.example.com", 443, "https", "/"),)
+    )
+
+    assert response.status is TechnologyDetectionProviderStatus.PARTIAL
+    assert len(response.technologies) == 1
+    assert response.out_of_scope_count == 1
+    assert response.partial_reasons == (
+        TechnologyDetectionPartialReason.UNASSOCIATED_RECORDS_SKIPPED,
+    )
+
+
+def test_record_limit_rejects_output_without_partial_evidence() -> None:
+    output = json.dumps(
+        [
+            {
+                "target": "https://www.example.com/",
+                "plugins": {"nginx": {}},
+            },
+            {
+                "target": "https://www.example.com/",
+                "plugins": {"Apache": {}},
+            },
+        ]
+    )
+    provider, _ = _provider(
+        _result(stdout=output),
+        config=WhatWebConfig(max_records=1),
+    )
+
+    response = provider.detect(
+        (Endpoint("www.example.com", 443, "https", "/"),)
+    )
+
+    assert response.status is TechnologyDetectionProviderStatus.FAILURE
+    assert response.technologies == ()
     assert response.malformed_record_count == 1
 
 
@@ -501,6 +696,9 @@ def test_timeout_with_complete_evidence_is_partial() -> None:
 
     assert response.status is TechnologyDetectionProviderStatus.PARTIAL
     assert len(response.technologies) == 1
+    assert response.partial_reasons == (
+        TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+    )
     assert not _output_path(runner.invocations[0]).exists()
 
 
@@ -536,6 +734,9 @@ def test_truncated_complete_output_with_evidence_is_partial() -> None:
 
     assert response.status is TechnologyDetectionProviderStatus.PARTIAL
     assert response.truncated
+    assert response.partial_reasons == (
+        TechnologyDetectionPartialReason.OUTPUT_TRUNCATED,
+    )
 
 
 def test_truncated_incomplete_output_is_failure() -> None:

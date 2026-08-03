@@ -4,8 +4,9 @@ Kali Linux is the primary supported platform for controlled external-tool
 execution. Tools must be installed separately from trusted upstream projects;
 RedForge never invokes package managers, downloads tools, modifies `PATH`, or
 performs automatic updates. `redforge doctor` checks static executable
-availability without starting the executable. Production version probing is
-disabled pending verified compatibility policies. See
+availability and may run only declared target-free version arguments when a
+definition requires identity validation. Version compatibility constraints
+remain unverified. See
 [Kali Linux Platform Policy](kali-platform.md) and
 [RedForge Doctor](doctor.md).
 
@@ -49,15 +50,17 @@ implementation class name.
 
 - typed identity;
 - display name and responsibility-oriented description;
-- one executable token;
+- one or more ordered executable candidate tokens;
 - generic version arguments;
+- optional bounded identity-output metadata;
 - a positive default timeout;
 - normalized descriptive tags.
 
 Definitions contain no runner, capability, secret, environment, or mutable
-configuration. Version probing is intentionally deferred; `version_argument`
-provides the generic metadata needed by a later explicit operation without
-adding tool-specific parsing or compatibility policy.
+configuration. Candidate and identity metadata allow infrastructure to resolve
+packaging-name differences without capability or CLI branches. HTTPX keeps
+canonical `ToolId("httpx")`, prefers `httpx-toolkit`, and rejects an unrelated
+Python `httpx` executable. No minimum compatible version is inferred.
 
 `ToolRegistry` stores definitions only. Registration performs no resolution or
 execution. `get`, `require`, `contains`, `all`, `ids`, and `by_tag` return
@@ -82,13 +85,15 @@ creates directories or changes the parent process working directory.
 ## Runner port and local implementation
 
 `ToolRunner` is an SDK protocol with `run` and read-only `is_available`
-operations. The protocol imports no subprocess implementation. Tool-specific
-adapters depend on this port and retain responsibility for invocation building,
-output parsing, and domain semantics.
+operations. The separate `ToolExecutableResolver` port returns typed,
+sanitized candidate outcomes. The protocols import no subprocess
+implementation. Tool-specific adapters depend on the runner and retain
+responsibility for invocation building, output parsing, and domain semantics.
 
 `LocalSubprocessToolRunner` lives in the adapter/infrastructure layer. It:
 
-- resolves executables with `shutil.which`;
+- resolves candidates in declared order with `shutil.which`;
+- validates identity-constrained candidates with only declared version argv;
 - executes `[resolved_executable, *arguments]`;
 - always uses `shell=False`;
 - captures stdout and stderr separately as bytes;
@@ -101,6 +106,9 @@ output parsing, and domain semantics.
 It never parses findings, references capabilities, publishes Context state,
 retries, installs tools, or performs network access itself. `is_available`
 only resolves the executable and has no installation or execution side effect.
+`resolve` does not cache globally, expose the resolved path, or accept target
+arguments. Runtime execution proceeds only with the first identity-valid
+candidate; absence, incompatible identity, and probe errors remain distinct.
 
 ## Status and diagnostics
 

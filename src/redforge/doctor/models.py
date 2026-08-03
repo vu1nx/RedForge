@@ -59,6 +59,7 @@ class ToolVersionProbeStatus(StrEnum):
 
     DETECTED = "detected"
     UNAVAILABLE = "unavailable"
+    INCOMPATIBLE = "incompatible"
     MALFORMED = "malformed"
     ERROR = "error"
 

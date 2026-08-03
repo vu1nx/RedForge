@@ -2,8 +2,8 @@
 
 Kali Linux is RedForge's primary supported execution platform and the official
 target for external-tool integration and future controlled real-tool smoke
-validation. This is a support policy, not a claim that the current release has
-already completed real Kali smoke validation.
+validation. An initial controlled run exposed the HTTPX executable-name
+collision described below; successful Kali revalidation remains pending.
 
 Other Linux distributions may be compatible, but remain best effort until
 explicitly validated. Windows remains supported for development, unit tests,
@@ -25,3 +25,12 @@ External tools remain separately installed and maintained by the operator from
 trusted upstream sources. RedForge does not install software, invoke package
 managers, modify `PATH`, edit shell profiles, download releases, or elevate
 privileges.
+
+Kali may expose ProjectDiscovery HTTPX as `/usr/bin/httpx-toolkit`;
+`/usr/bin/httpx` may instead be the unrelated Python HTTPX command-line client.
+RedForge's canonical identity remains `httpx`. Infrastructure metadata declares
+the ordered candidates `httpx-toolkit`, then `httpx`, and a bounded
+ProjectDiscovery version-output identity check rejects name collisions. No
+symlink, executable rename, wrapper, or `PATH` modification is required.
+Detected versions remain compatibility-unverified until explicit supported
+version constraints are defined.

@@ -74,12 +74,22 @@ def test_canonical_definition_and_default_registry() -> None:
     registry = create_default_tool_registry()
 
     assert ToolId("httpx") == HTTPX_TOOL_ID
-    assert HTTPX_TOOL.executable == "httpx"
+    assert HTTPX_TOOL.executable == "httpx-toolkit"
+    assert HTTPX_TOOL.executable_candidates == ("httpx-toolkit", "httpx")
+    assert HTTPX_TOOL.identity_output_pattern is not None
     assert HTTPX_TOOL.version_argument == ("-version",)
     assert HTTPX_TOOL.default_timeout_seconds == 300
     assert HTTPX_TOOL.tags == ("http", "probe", "recon")
     assert registry.require(HTTPX_TOOL_ID) is HTTPX_TOOL
-    assert registry.require(ToolId("subfinder")).executable == "subfinder"
+    assert registry.require(
+        ToolId("subfinder")
+    ).executable_candidates == ("subfinder",)
+    assert registry.require(
+        ToolId("katana")
+    ).executable_candidates == ("katana",)
+    assert registry.require(
+        ToolId("whatweb")
+    ).executable_candidates == ("whatweb",)
 
     with pytest.raises(FrozenInstanceError):
         HTTPX_TOOL.tags = ()  # type: ignore[misc]

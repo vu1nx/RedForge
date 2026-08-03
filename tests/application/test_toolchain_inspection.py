@@ -90,17 +90,18 @@ def test_default_reconnaissance_tool_definitions_are_stable_and_path_free() -> N
     definitions = create_default_tool_registry().all()
 
     assert tuple(
-        (item.tool_id.value, item.executable)
+        (item.tool_id.value, item.executable_candidates)
         for item in definitions
     ) == (
-        ("httpx", "httpx"),
-        ("katana", "katana"),
-        ("subfinder", "subfinder"),
-        ("whatweb", "whatweb"),
+        ("httpx", ("httpx-toolkit", "httpx")),
+        ("katana", ("katana",)),
+        ("subfinder", ("subfinder",)),
+        ("whatweb", ("whatweb",)),
     )
     assert all(
-        "/" not in item.executable and "\\" not in item.executable
+        "/" not in candidate and "\\" not in candidate
         for item in definitions
+        for candidate in item.executable_candidates
     )
     assert len({item.tool_id for item in definitions}) == len(definitions)
 

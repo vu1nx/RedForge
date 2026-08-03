@@ -57,6 +57,9 @@ from redforge.sdk.technology_detection import (
 )
 from redforge.sdk.tool import (
     ToolDefinition,
+    ToolExecutableResolution,
+    ToolExecutableResolutionStatus,
+    ToolExecutableResolver,
     ToolExecutionResult,
     ToolExecutionStatus,
     ToolId,
@@ -103,6 +106,9 @@ __all__ = [
     "TechnologyDetectionProviderResult",
     "TechnologyDetectionProviderStatus",
     "ToolDefinition",
+    "ToolExecutableResolution",
+    "ToolExecutableResolutionStatus",
+    "ToolExecutableResolver",
     "ToolExecutionResult",
     "ToolExecutionStatus",
     "ToolId",

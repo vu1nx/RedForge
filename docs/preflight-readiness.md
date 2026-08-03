@@ -77,6 +77,12 @@ It does not run help, version, or scan commands. Missing executables are
 Tool version compatibility remains future work because current tool definitions
 declare no supported-version constraint.
 
+Static scan preflight intentionally remains execution-free. Doctor and runtime
+additionally use the infrastructure executable resolver for definitions with
+identity metadata. For canonical `httpx`, this target-free check distinguishes
+Kali's ProjectDiscovery `httpx-toolkit` from an unrelated Python `httpx`
+executable before target-facing runtime execution.
+
 A provider requirement records whether composition supplied the provider role.
 Absence is `MISCONFIGURED`. An optional `ProviderReadinessProbe` may validate
 static configuration or binding compatibility without a target. No credential

@@ -1,18 +1,34 @@
 """Safe local subprocess implementation of the external tool execution port."""
 
 import os
+import re
 import shutil
 import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 from time import perf_counter
 from typing import cast
 
 from redforge.sdk.tool import (
     ToolDefinition,
+    ToolExecutableResolution,
+    ToolExecutableResolutionStatus,
     ToolExecutionResult,
     ToolExecutionStatus,
     ToolInvocation,
     ToolRunnerConfig,
 )
+
+_IDENTITY_OUTPUT_LIMIT = 16_384
+_ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutableSelection:
+    status: ToolExecutableResolutionStatus
+    candidate: str | None = None
+    resolved_path: str | None = None
+    version: str | None = None
 
 
 def _bounded_decode(
@@ -45,10 +61,35 @@ class LocalSubprocessToolRunner:
         return self._config
 
     def is_available(self, definition: ToolDefinition) -> bool:
-        """Resolve an executable without running it or changing state."""
+        """Return whether any candidate exists without executing it."""
         self._validate_definition(definition)
         environment = self._environment(())
-        return self._resolve(definition, environment) is not None
+        try:
+            return any(
+                self._locate(candidate, environment) is not None
+                for candidate in definition.executable_candidates
+            )
+        except OSError:
+            return False
+
+    def resolve(
+        self,
+        definition: ToolDefinition,
+    ) -> ToolExecutableResolution:
+        """Resolve candidates and perform declared target-free identity checks."""
+        self._validate_definition(definition)
+        selection = self._select(definition, self._environment(()))
+        safe_candidate = (
+            None
+            if selection.candidate is None
+            else Path(selection.candidate).name
+        )
+        return ToolExecutableResolution(
+            tool_id=definition.tool_id,
+            status=selection.status,
+            executable_candidate=safe_candidate,
+            version=selection.version,
+        )
 
     def run(
         self,
@@ -79,7 +120,7 @@ class LocalSubprocessToolRunner:
 
         environment = self._environment(invocation.environment)
         try:
-            executable = self._resolve(definition, environment)
+            selection = self._select(definition, environment)
         except OSError:
             return self._operational_result(
                 definition,
@@ -87,12 +128,34 @@ class LocalSubprocessToolRunner:
                 started,
                 "tool executable resolution failed",
             )
-        if executable is None:
+        if selection.status is ToolExecutableResolutionStatus.UNAVAILABLE:
             return self._operational_result(
                 definition,
                 ToolExecutionStatus.NOT_FOUND,
                 started,
                 "tool executable was not found",
+            )
+        if selection.status is ToolExecutableResolutionStatus.INCOMPATIBLE:
+            return self._operational_result(
+                definition,
+                ToolExecutionStatus.ERROR,
+                started,
+                "tool executable identity is incompatible",
+            )
+        if selection.status is ToolExecutableResolutionStatus.ERROR:
+            return self._operational_result(
+                definition,
+                ToolExecutionStatus.ERROR,
+                started,
+                "tool executable identity probe failed",
+            )
+        executable = selection.resolved_path
+        if executable is None:
+            return self._operational_result(
+                definition,
+                ToolExecutionStatus.ERROR,
+                started,
+                "tool executable resolution failed",
             )
 
         stdin = invocation.stdin
@@ -242,13 +305,104 @@ class LocalSubprocessToolRunner:
             environment[name] = value
         return dict(sorted(environment.items()))
 
-    @staticmethod
-    def _resolve(
+    def _select(
+        self,
         definition: ToolDefinition,
+        environment: dict[str, str],
+    ) -> _ExecutableSelection:
+        incompatible = False
+        probe_error = False
+        for candidate in definition.executable_candidates:
+            try:
+                resolved_path = self._locate(candidate, environment)
+            except OSError:
+                probe_error = True
+                continue
+            if resolved_path is None:
+                continue
+            if definition.identity_output_pattern is None:
+                return _ExecutableSelection(
+                    ToolExecutableResolutionStatus.RESOLVED,
+                    candidate,
+                    resolved_path,
+                )
+            status, version = self._probe_identity(
+                definition,
+                resolved_path,
+                environment,
+            )
+            if status is ToolExecutableResolutionStatus.RESOLVED:
+                return _ExecutableSelection(
+                    status,
+                    candidate,
+                    resolved_path,
+                    version,
+                )
+            if status is ToolExecutableResolutionStatus.ERROR:
+                probe_error = True
+            else:
+                incompatible = True
+        if probe_error:
+            return _ExecutableSelection(ToolExecutableResolutionStatus.ERROR)
+        if incompatible:
+            return _ExecutableSelection(
+                ToolExecutableResolutionStatus.INCOMPATIBLE
+            )
+        return _ExecutableSelection(ToolExecutableResolutionStatus.UNAVAILABLE)
+
+    def _probe_identity(
+        self,
+        definition: ToolDefinition,
+        resolved_path: str,
+        environment: dict[str, str],
+    ) -> tuple[ToolExecutableResolutionStatus, str | None]:
+        try:
+            completed = subprocess.run(
+                [resolved_path, *definition.version_argument],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                env=environment,
+                timeout=definition.identity_timeout_seconds,
+                check=False,
+                shell=False,
+            )
+        except (subprocess.TimeoutExpired, PermissionError, OSError):
+            return ToolExecutableResolutionStatus.ERROR, None
+        stdout, _ = _bounded_decode(
+            completed.stdout,
+            limit=min(self._config.max_stdout_bytes, _IDENTITY_OUTPUT_LIMIT),
+            encoding=self._config.encoding,
+        )
+        stderr, _ = _bounded_decode(
+            completed.stderr,
+            limit=min(self._config.max_stderr_bytes, _IDENTITY_OUTPUT_LIMIT),
+            encoding=self._config.encoding,
+        )
+        if completed.returncode != 0:
+            return ToolExecutableResolutionStatus.INCOMPATIBLE, None
+        pattern = definition.identity_output_pattern
+        if pattern is None:
+            return ToolExecutableResolutionStatus.RESOLVED, None
+        evidence = _ANSI_ESCAPE_PATTERN.sub("", f"{stdout}\n{stderr}")
+        match = re.search(pattern, evidence)
+        if match is None:
+            return ToolExecutableResolutionStatus.INCOMPATIBLE, None
+        version = match.group("version")
+        if (
+            not version
+            or len(version) > 128
+            or any(character in version for character in "\r\n")
+        ):
+            return ToolExecutableResolutionStatus.INCOMPATIBLE, None
+        return ToolExecutableResolutionStatus.RESOLVED, version
+
+    @staticmethod
+    def _locate(
+        candidate: str,
         environment: dict[str, str],
     ) -> str | None:
         return shutil.which(
-            definition.executable,
+            candidate,
             path=environment.get("PATH", ""),
         )
 

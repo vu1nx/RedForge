@@ -152,6 +152,12 @@ class RedForgeDoctor:
                     status = DoctorStatus.ERROR
                 elif (
                     version_result.status
+                    is ToolVersionProbeStatus.INCOMPATIBLE
+                ):
+                    status = DoctorStatus.INCOMPATIBLE
+                    compatibility = ToolCompatibility.INCOMPATIBLE
+                elif (
+                    version_result.status
                     is ToolVersionProbeStatus.MALFORMED
                 ):
                     status = DoctorStatus.WARNING

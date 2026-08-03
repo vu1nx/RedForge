@@ -1304,6 +1304,38 @@ def test_diagnostic_logging_adapter_serializes_only_closed_event_contract() -> N
         assert forbidden not in source
 
 
+def test_httpx_executable_alias_is_confined_to_default_tool_metadata() -> None:
+    allowed = _SOURCE_ROOT / "adapters" / "httpx.py"
+    for package in (
+        "application",
+        "capabilities",
+        "cli",
+        "doctor",
+        "planning",
+        "runtime",
+    ):
+        for path in (_SOURCE_ROOT / package).rglob("*.py"):
+            assert "httpx-toolkit" not in path.read_text(
+                encoding="utf-8"
+            ), path
+    assert "httpx-toolkit" in allowed.read_text(encoding="utf-8")
+
+
+def test_executable_resolution_does_not_modify_path_or_create_aliases() -> None:
+    for path in _SOURCE_ROOT.rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        for forbidden in (
+            "os.symlink(",
+            ".symlink_to(",
+            'os.environ["PATH"] =',
+            "os.environ['PATH'] =",
+            "setx PATH",
+            "apt install",
+            "apt-get install",
+        ):
+            assert forbidden not in source, path
+
+
 def test_result_json_renderer_is_independent_from_diagnostic_events() -> None:
     path = _SOURCE_ROOT / "cli" / "json_output.py"
     imports = _imports(path)

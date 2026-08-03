@@ -40,7 +40,10 @@ from redforge.adapters.platform import (
     SystemPlatformInformationProbe,
     SystemPythonRuntimeInformationProbe,
 )
-from redforge.adapters.readiness import ToolRunnerReadinessProbe
+from redforge.adapters.readiness import (
+    ToolRunnerReadinessProbe,
+    ToolRunnerVersionProbe,
+)
 from redforge.adapters.subfinder import (
     SUBFINDER_TOOL,
     SUBFINDER_TOOL_ID,
@@ -100,6 +103,7 @@ __all__ = [
     "TechnologyDetectionResult",
     "TechnologyDetector",
     "ToolRunnerReadinessProbe",
+    "ToolRunnerVersionProbe",
     "WHATWEB_TOOL",
     "WHATWEB_TOOL_ID",
     "WhatWebConfig",

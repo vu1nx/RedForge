@@ -522,6 +522,13 @@ redforge doctor --output json
 Doctor accepts no target and performs no scan, DNS lookup, network request,
 installation, or remediation. See [RedForge Doctor](docs/doctor.md).
 
+On Kali, ProjectDiscovery HTTPX may be `/usr/bin/httpx-toolkit`, while
+`/usr/bin/httpx` may refer to the unrelated Python CLI. RedForge retains canonical tool ID
+`httpx`, resolves ordered candidates from immutable infrastructure metadata,
+and validates ProjectDiscovery identity with a bounded target-free version
+probe. It requires no symlink or `PATH` modification; detected versions remain
+compatibility-unverified, and successful Kali revalidation remains pending.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

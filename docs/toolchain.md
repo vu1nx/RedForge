@@ -2,8 +2,9 @@
 
 The production reconnaissance inventory is canonical registry/factory
 metadata and is also consumed by `redforge doctor`: Subfinder, HTTPX, Katana,
-and WhatWeb. Doctor checks executable availability without executing these
-tools or duplicating their names in coordinator logic. See
+and WhatWeb. Doctor checks executable availability without duplicating their
+names in coordinator logic. Identity-constrained definitions may execute only
+their declared target-free version arguments. See
 [RedForge Doctor](doctor.md) and
 [Kali Linux Platform Policy](kali-platform.md).
 
@@ -35,7 +36,7 @@ has succeeded.
 | Tool ID | Executable | Adapter and input | Machine output |
 |---|---|---|---|
 | `subfinder` | `subfinder` | `SubfinderSubdomainProvider`; canonical DNS root follows `-d` | bounded JSONL on stdout |
-| `httpx` | `httpx` | `HttpxProbeProvider`; bounded normalized host list on stdin | bounded JSONL on stdout |
+| `httpx` | `httpx-toolkit`, then `httpx` after identity validation | `HttpxProbeProvider`; bounded normalized host list on stdin | bounded JSONL on stdout |
 | `katana` | `katana` | `KatanaWebCrawlProvider`; bounded in-scope HTTP(S) seeds on stdin | bounded JSONL on stdout |
 | `whatweb` | `whatweb` | `WhatWebTechnologyDetectionProvider`; bounded canonical endpoint arguments | bounded JSON array in an adapter-owned temporary file |
 
@@ -104,4 +105,13 @@ technical debt. Install tools only from trusted upstream sources and validate
 their versions in the deployment environment; RedForge provides no verified
 download commands or automatic installation.
 
-The first controlled authorized real-tool smoke run is a separate task.
+Executable candidates are ordered immutable infrastructure metadata. The
+canonical `httpx` definition prefers Kali's `httpx-toolkit`, then considers
+`httpx`; either candidate must match the bounded ProjectDiscovery version
+output before runtime use. The unrelated Python HTTPX CLI is therefore not
+ready. Candidate resolution exposes neither the absolute executable path nor
+raw version output, and it is repeated for later runs so `PATH` changes are not
+globally cached.
+
+The initial controlled Kali smoke run exposed the HTTPX executable-name
+collision. Successful real-tool revalidation remains a separate pending task.

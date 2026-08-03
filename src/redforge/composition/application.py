@@ -11,6 +11,7 @@ from redforge.adapters import (
     SystemPlatformInformationProbe,
     SystemPythonRuntimeInformationProbe,
     ToolRunnerReadinessProbe,
+    ToolRunnerVersionProbe,
     VulnerabilityProvider,
     create_default_tool_registry,
 )
@@ -48,6 +49,7 @@ from redforge.sdk import (
     ProviderRole,
     SubdomainProvider,
     TechnologyDetectionProvider,
+    ToolExecutableResolver,
     ToolReadinessProbe,
     ToolRegistry,
     ToolRunner,
@@ -245,6 +247,19 @@ class ApplicationComposition:
         availability_probe = readiness.tool_probe
         if availability_probe is None:
             raise RuntimeError("doctor composition requires tool readiness")
+        resolver: object | None = self.tool_runner
+        if (
+            resolver is None
+            and isinstance(availability_probe, ToolRunnerReadinessProbe)
+        ):
+            resolver = availability_probe.runner
+        version_probe = (
+            ToolRunnerVersionProbe(
+                cast(ToolExecutableResolver, resolver)
+            )
+            if callable(getattr(resolver, "resolve", None))
+            else None
+        )
         return RedForgeDoctor(
             profile=self.profile,
             platform_probe=SystemPlatformInformationProbe(),
@@ -254,6 +269,7 @@ class ApplicationComposition:
             tool_registry=readiness.tool_registry,
             availability_probe=availability_probe,
             configuration_valid=configuration_valid,
+            version_probe=version_probe,
         )
 
     def _create_application_components(

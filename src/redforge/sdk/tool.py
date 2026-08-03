@@ -2,6 +2,7 @@
 
 import codecs
 import math
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -126,6 +127,22 @@ def _tags(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(sorted(normalized))
 
 
+def _executable_candidate(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or "\x00" in value
+        or any(character in value for character in "\r\n\t")
+        or (
+            any(character.isspace() for character in value)
+            and not Path(value).is_absolute()
+        )
+    ):
+        raise ValueError("tool executable must be one executable token")
+    return value
+
+
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class ToolDefinition:
     """Immutable static metadata for one replaceable external executable."""
@@ -133,8 +150,10 @@ class ToolDefinition:
     tool_id: ToolId
     display_name: str
     description: str
-    executable: str
+    executable_candidates: tuple[str, ...]
     version_argument: tuple[str, ...]
+    identity_output_pattern: str | None
+    identity_timeout_seconds: float
     default_timeout_seconds: float
     tags: tuple[str, ...]
 
@@ -143,24 +162,59 @@ class ToolDefinition:
         tool_id: ToolId | str,
         display_name: str,
         description: str,
-        executable: str,
+        executable: str | None = None,
         version_argument: Iterable[str] = ("--version",),
         default_timeout_seconds: float = 300.0,
         tags: Iterable[str] = (),
+        executable_candidates: Iterable[str] | None = None,
+        identity_output_pattern: str | None = None,
+        identity_timeout_seconds: float = 5.0,
     ) -> None:
-        executable_value = cast(object, executable)
-        if (
-            not isinstance(executable_value, str)
-            or not executable
-            or executable != executable.strip()
-            or "\x00" in executable
-            or any(character in executable for character in "\r\n\t")
-            or (
-                any(character.isspace() for character in executable)
-                and not Path(executable).is_absolute()
+        if executable is not None and executable_candidates is not None:
+            raise ValueError(
+                "tool executable and executable candidates are mutually exclusive"
+            )
+        if executable_candidates is None:
+            if executable is None:
+                raise ValueError("tool executable candidates must not be empty")
+            candidates = (_executable_candidate(executable),)
+        else:
+            candidates = tuple(
+                _executable_candidate(item)
+                for item in _string_tuple(
+                    executable_candidates,
+                    label="executable candidates",
+                )
+            )
+            if not candidates:
+                raise ValueError("tool executable candidates must not be empty")
+        if len(candidates) != len(set(candidates)):
+            raise ValueError("tool executable candidates contain duplicates")
+        pattern: str | None
+        if identity_output_pattern is None:
+            pattern = None
+        elif (
+            not isinstance(cast(object, identity_output_pattern), str)
+            or not identity_output_pattern
+            or len(identity_output_pattern) > 512
+            or any(
+                character in identity_output_pattern
+                for character in "\x00\r\n"
             )
         ):
-            raise ValueError("tool executable must be one executable token")
+            raise ValueError("tool identity output pattern is invalid")
+        else:
+            try:
+                compiled = re.compile(identity_output_pattern)
+            except re.error:
+                raise ValueError(
+                    "tool identity output pattern is invalid"
+                ) from None
+            if "version" not in compiled.groupindex:
+                raise ValueError(
+                    "tool identity output pattern requires a version group"
+                )
+            pattern = identity_output_pattern
         for label, value in (
             ("display name", display_name),
             ("description", description),
@@ -170,7 +224,7 @@ class ToolDefinition:
         object.__setattr__(self, "tool_id", normalize_tool_id(tool_id))
         object.__setattr__(self, "display_name", display_name.strip())
         object.__setattr__(self, "description", description.strip())
-        object.__setattr__(self, "executable", executable)
+        object.__setattr__(self, "executable_candidates", candidates)
         object.__setattr__(
             self,
             "version_argument",
@@ -178,6 +232,15 @@ class ToolDefinition:
                 version_argument,
                 label="version argument",
                 allow_empty_items=False,
+            ),
+        )
+        object.__setattr__(self, "identity_output_pattern", pattern)
+        object.__setattr__(
+            self,
+            "identity_timeout_seconds",
+            _positive_number(
+                identity_timeout_seconds,
+                label="identity timeout",
             ),
         )
         object.__setattr__(
@@ -190,12 +253,19 @@ class ToolDefinition:
         )
         object.__setattr__(self, "tags", _tags(tags))
 
+    @property
+    def executable(self) -> str:
+        """Return the preferred executable candidate for compatibility."""
+        return self.executable_candidates[0]
+
     def __repr__(self) -> str:
         """Return metadata without exposing an executable filesystem path."""
         return (
             "ToolDefinition("
             f"tool_id={self.tool_id!r}, "
             f"display_name={self.display_name!r}, "
+            f"executable_candidate_count={len(self.executable_candidates)!r}, "
+            f"identity_validation={self.identity_output_pattern is not None!r}, "
             f"default_timeout_seconds={self.default_timeout_seconds!r}, "
             f"tags={self.tags!r})"
         )
@@ -277,6 +347,70 @@ class ToolExecutionStatus(StrEnum):
     ERROR = "error"
     TIMEOUT = "timeout"
     NOT_FOUND = "not_found"
+
+
+class ToolExecutableResolutionStatus(StrEnum):
+    """Sanitized outcome of deterministic executable candidate resolution."""
+
+    RESOLVED = "resolved"
+    UNAVAILABLE = "unavailable"
+    INCOMPATIBLE = "incompatible"
+    ERROR = "error"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ToolExecutableResolution:
+    """Resolved candidate metadata without an absolute executable path."""
+
+    tool_id: ToolId
+    status: ToolExecutableResolutionStatus
+    executable_candidate: str | None = None
+    version: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(cast(object, self.tool_id), ToolId):
+            raise TypeError("tool resolution identity must be a ToolId")
+        if not isinstance(
+            cast(object, self.status),
+            ToolExecutableResolutionStatus,
+        ):
+            raise TypeError("tool resolution status is invalid")
+        if self.status is ToolExecutableResolutionStatus.RESOLVED:
+            if self.executable_candidate is None:
+                raise ValueError(
+                    "resolved tool requires an executable candidate"
+                )
+            _executable_candidate(self.executable_candidate)
+            if (
+                "/" in self.executable_candidate
+                or "\\" in self.executable_candidate
+            ):
+                raise ValueError(
+                    "resolved tool candidate must not expose a path"
+                )
+            if self.version is not None and (
+                not isinstance(cast(object, self.version), str)
+                or not self.version
+                or len(self.version) > 128
+                or any(character in self.version for character in "\r\n")
+            ):
+                raise ValueError("resolved tool version is invalid")
+        elif (
+            self.executable_candidate is not None
+            or self.version is not None
+        ):
+            raise ValueError(
+                "unresolved tool cannot expose candidate metadata"
+            )
+
+    def __repr__(self) -> str:
+        """Return resolution state without candidate or path disclosure."""
+        return (
+            "ToolExecutableResolution("
+            f"tool_id={self.tool_id!r}, "
+            f"status={self.status!r}, "
+            f"has_version={self.version is not None!r})"
+        )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -421,4 +555,15 @@ class ToolRunner(Protocol):
 
     def is_available(self, definition: ToolDefinition) -> bool:
         """Return whether the executable can currently be resolved."""
+        ...
+
+
+class ToolExecutableResolver(Protocol):
+    """Resolve and validate executable candidates without scan input."""
+
+    def resolve(
+        self,
+        definition: ToolDefinition,
+    ) -> ToolExecutableResolution:
+        """Return one sanitized target-free executable resolution."""
         ...

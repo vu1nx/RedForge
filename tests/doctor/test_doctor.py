@@ -33,7 +33,11 @@ from redforge.sdk import (
     ReadinessReason,
     ReadinessStatus,
     ToolDefinition,
+    ToolExecutableResolution,
+    ToolExecutableResolutionStatus,
+    ToolExecutionResult,
     ToolId,
+    ToolInvocation,
 )
 
 _RECON_IDS = (
@@ -106,6 +110,54 @@ class _VersionProbe:
     def probe(self, definition: ToolDefinition) -> ToolVersionProbeResult:
         self.calls.append(definition.tool_id)
         return self._result
+
+
+class _ResolutionRunner:
+    def __init__(
+        self,
+        httpx_status: ToolExecutableResolutionStatus,
+    ) -> None:
+        self._httpx_status = httpx_status
+        self.run_calls = 0
+
+    def is_available(
+        self,
+        definition: ToolDefinition,  # noqa: ARG002
+    ) -> bool:
+        return True
+
+    def resolve(
+        self,
+        definition: ToolDefinition,
+    ) -> ToolExecutableResolution:
+        if definition.tool_id == ToolId("httpx"):
+            if (
+                self._httpx_status
+                is ToolExecutableResolutionStatus.RESOLVED
+            ):
+                return ToolExecutableResolution(
+                    definition.tool_id,
+                    self._httpx_status,
+                    executable_candidate="httpx-toolkit",
+                    version="v1.9.0",
+                )
+            return ToolExecutableResolution(
+                definition.tool_id,
+                self._httpx_status,
+            )
+        return ToolExecutableResolution(
+            definition.tool_id,
+            ToolExecutableResolutionStatus.RESOLVED,
+            executable_candidate=definition.executable,
+        )
+
+    def run(
+        self,
+        definition: ToolDefinition,  # noqa: ARG002
+        invocation: ToolInvocation,  # noqa: ARG002
+    ) -> ToolExecutionResult:
+        self.run_calls += 1
+        raise AssertionError("doctor must not execute target-facing tools")
 
 
 def _doctor(
@@ -287,6 +339,26 @@ def test_unavailable_version_probe_preserves_availability() -> None:
     assert all(tool.status is DoctorStatus.READY for tool in result.tools)
 
 
+def test_incompatible_identity_makes_doctor_not_ready() -> None:
+    result = _doctor(
+        version=_VersionProbe(
+            ToolVersionProbeResult(
+                ToolVersionProbeStatus.INCOMPATIBLE
+            )
+        )
+    ).inspect()
+
+    assert not result.ready
+    assert all(
+        tool.status is DoctorStatus.INCOMPATIBLE
+        for tool in result.tools
+    )
+    assert all(
+        tool.compatibility.value == "incompatible"
+        for tool in result.tools
+    )
+
+
 def test_full_profile_reports_expected_missing_provider() -> None:
     result = _doctor(
         profile=CompositionProfile.FULL_ASSESSMENT
@@ -325,3 +397,40 @@ def test_composition_supplies_registry_derived_doctor_without_target() -> None:
         "subfinder",
         "whatweb",
     )
+
+
+def test_composed_doctor_accepts_projectdiscovery_httpx_toolkit() -> None:
+    runner = _ResolutionRunner(ToolExecutableResolutionStatus.RESOLVED)
+
+    result = ApplicationComposition(
+        CompositionProfile.RECONNAISSANCE,
+        tool_runner=runner,
+    ).create_doctor().inspect()
+
+    httpx = next(
+        tool for tool in result.tools if tool.tool_id == ToolId("httpx")
+    )
+    assert result.ready
+    assert httpx.status is DoctorStatus.READY
+    assert httpx.version == "v1.9.0"
+    assert httpx.compatibility.value == "unverified"
+    assert runner.run_calls == 0
+
+
+def test_composed_doctor_rejects_python_httpx_only_identity() -> None:
+    runner = _ResolutionRunner(
+        ToolExecutableResolutionStatus.INCOMPATIBLE
+    )
+
+    result = ApplicationComposition(
+        CompositionProfile.RECONNAISSANCE,
+        tool_runner=runner,
+    ).create_doctor().inspect()
+
+    httpx = next(
+        tool for tool in result.tools if tool.tool_id == ToolId("httpx")
+    )
+    assert not result.ready
+    assert httpx.status is DoctorStatus.INCOMPATIBLE
+    assert httpx.version is None
+    assert runner.run_calls == 0

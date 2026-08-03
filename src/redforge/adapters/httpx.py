@@ -31,8 +31,13 @@ HTTPX_TOOL = ToolDefinition(
     tool_id=HTTPX_TOOL_ID,
     display_name="HTTPX",
     description="Probes HTTP and HTTPS services.",
-    executable="httpx",
+    executable_candidates=("httpx-toolkit", "httpx"),
     version_argument=("-version",),
+    identity_output_pattern=(
+        r"(?im)^\s*\[INF\]\s+Current Version:\s+"
+        r"(?P<version>v[0-9]+(?:\.[0-9]+){1,3}"
+        r"(?:[-+][0-9A-Za-z.-]+)?)\s*$"
+    ),
     default_timeout_seconds=300.0,
     tags=("http", "probe", "recon"),
 )

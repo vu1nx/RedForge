@@ -7,6 +7,8 @@ import pytest  # type: ignore[reportMissingImports]
 
 from redforge.sdk import (
     ToolDefinition,
+    ToolExecutableResolution,
+    ToolExecutableResolutionStatus,
     ToolExecutionResult,
     ToolExecutionStatus,
     ToolId,
@@ -60,9 +62,10 @@ def test_tool_definition_normalizes_immutable_metadata() -> None:
     assert definition.version_argument == ("--version",)
     assert definition.default_timeout_seconds == 10.0
     assert definition.tags == ("active", "recon")
+    assert definition.executable_candidates == ("fake_scanner",)
     assert not hasattr(definition, "__dict__")
     with pytest.raises(FrozenInstanceError):
-        definition.executable = "changed"  # type: ignore[misc]
+        definition.executable_candidates = ("changed",)  # type: ignore[misc]
 
 
 @pytest.mark.parametrize(
@@ -110,6 +113,59 @@ def test_tool_definition_rejects_duplicate_tags_and_bad_version_arguments() -> N
         )
 
 
+def test_tool_definition_normalizes_ordered_executable_candidates() -> None:
+    candidates = ["httpx-toolkit", "httpx"]
+    definition = ToolDefinition(
+        "httpx",
+        "HTTPX",
+        "ProjectDiscovery HTTP probe.",
+        executable_candidates=candidates,
+        identity_output_pattern=(
+            r"Current Version: (?P<version>v[0-9.]+)"
+        ),
+    )
+    candidates.reverse()
+
+    assert definition.executable_candidates == ("httpx-toolkit", "httpx")
+    assert definition.executable == "httpx-toolkit"
+    assert definition.identity_timeout_seconds == 5.0
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    ((), ("",), ("httpx", "httpx")),
+)
+def test_tool_definition_rejects_invalid_executable_candidates(
+    candidates: tuple[str, ...],
+) -> None:
+    with pytest.raises(ValueError):
+        ToolDefinition(
+            "httpx",
+            "HTTPX",
+            "ProjectDiscovery HTTP probe.",
+            executable_candidates=candidates,
+        )
+
+
+def test_tool_definition_rejects_ambiguous_executable_configuration() -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        ToolDefinition(
+            "httpx",
+            "HTTPX",
+            "ProjectDiscovery HTTP probe.",
+            executable="httpx",
+            executable_candidates=("httpx-toolkit", "httpx"),
+        )
+    with pytest.raises(ValueError, match="version group"):
+        ToolDefinition(
+            "httpx",
+            "HTTPX",
+            "ProjectDiscovery HTTP probe.",
+            executable="httpx",
+            identity_output_pattern=r"ProjectDiscovery",
+        )
+
+
 def test_tool_definition_repr_hides_executable_path() -> None:
     sensitive_marker = "private-executable-marker"
     definition = ToolDefinition(
@@ -120,6 +176,16 @@ def test_tool_definition_repr_hides_executable_path() -> None:
     )
 
     assert sensitive_marker not in repr(definition)
+
+
+def test_resolution_contract_rejects_path_disclosure() -> None:
+    with pytest.raises(ValueError, match="path"):
+        ToolExecutableResolution(
+            ToolId("httpx"),
+            ToolExecutableResolutionStatus.RESOLVED,
+            executable_candidate="private/httpx-toolkit",
+            version="v1.9.0",
+        )
 
 
 def test_invocation_copies_inputs_and_has_safe_repr() -> None:

@@ -130,3 +130,13 @@ through discovery, probing, crawling, and technology detection. See
 [Controlled Local Smoke Test](local-smoke-test.md). This profile never invokes
 Subfinder; it does not bypass readiness inspection for HTTPX, Katana, or
 WhatWeb.
+
+## Doctor
+
+`redforge doctor` accepts no target and inspects static platform, runtime,
+registry, composition, configuration, and executable-availability metadata.
+It supports `--profile reconnaissance`, `--profile full_assessment`, and
+`--output human|json`. Exit 0 means ready, 3 not ready, 5 internal failure, and
+130 interrupted; parser errors remain 2. It creates no scan state and performs
+no DNS, network, scan, installation, or remediation. See
+[RedForge Doctor](doctor.md).

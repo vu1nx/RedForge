@@ -19,6 +19,12 @@ from redforge.application import (
     ScanPreflightError,
     ScanResult,
 )
+from redforge.cli.doctor_output import (
+    build_doctor_error_outcome,
+    build_doctor_json_outcome,
+    render_doctor_human,
+    render_doctor_json,
+)
 from redforge.cli.json_output import (
     JsonDryRunOutcome,
     JsonOutcomeType,
@@ -41,6 +47,7 @@ from redforge.configuration import (
     load_configuration,
     resolve_configuration,
 )
+from redforge.doctor import DoctorResult
 from redforge.domain.scan_scope import ExactNetworkTarget
 from redforge.observability import (
     DiagnosticEventSink,
@@ -66,6 +73,14 @@ class HelpScope(StrEnum):
 
     ROOT = "root"
     SCAN = "scan"
+    DOCTOR = "doctor"
+
+
+class CliCommand(StrEnum):
+    """Typed top-level command selection."""
+
+    SCAN = "scan"
+    DOCTOR = "doctor"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +95,8 @@ class CliOptions:
     log_level: ObservabilityLevel | None = None
     dry_run: bool = False
     help_scope: HelpScope | None = None
+    command: CliCommand = CliCommand.SCAN
+    doctor_profile: CompositionProfile | None = None
 
 
 class CliUsageError(ValueError):
@@ -113,6 +130,14 @@ class ScanInspectionService(Protocol):
         ...
 
 
+class DoctorService(Protocol):
+    """Target-free environment diagnostic service."""
+
+    def inspect(self) -> DoctorResult:
+        """Inspect static environment readiness."""
+        ...
+
+
 type OrchestratorFactory = Callable[[], ScanExecutor]
 type InspectorFactory = Callable[[], ScanInspectionService]
 type CompositionFactory = Callable[
@@ -124,6 +149,7 @@ type CompositionInspectionFactory = Callable[
     ScanInspectionService,
 ]
 type ConfigurationLoader = Callable[[Path], RedForgeConfiguration]
+type DoctorFactory = Callable[[CompositionProfile], DoctorService]
 
 
 class _NonExitingParser(argparse.ArgumentParser):
@@ -186,12 +212,37 @@ def _configure_scan_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _configure_doctor_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--profile",
+        choices=(
+            CompositionProfile.RECONNAISSANCE.value,
+            CompositionProfile.FULL_ASSESSMENT.value,
+        ),
+        default=CompositionProfile.RECONNAISSANCE.value,
+        help="Composition profile to inspect (default: reconnaissance).",
+    )
+    parser.add_argument(
+        "--output",
+        choices=tuple(item.value for item in OutputFormat),
+        default=OutputFormat.HUMAN.value,
+        help="Output format: human (default) or versioned JSON.",
+    )
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="store_true",
+        dest="help_requested",
+        help="Show this help message.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build a fresh parser without reading argv or performing composition."""
     parser = _NonExitingParser(
         prog="redforge",
         add_help=False,
-        description="RedForge application scan control.",
+        description="RedForge scan control and environment diagnostics.",
         epilog=(
             "Only scan systems you are explicitly authorized to assess. "
             "Exit 0 means accepted; 2 invalid input; 3 not ready; "
@@ -215,6 +266,16 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Only scan systems you are explicitly authorized to assess.",
     )
     _configure_scan_parser(scan)
+    doctor = subparsers.add_parser(
+        "doctor",
+        add_help=False,
+        help="Inspect static local execution readiness.",
+        description=(
+            "Inspect platform, runtime, registries, composition, and "
+            "external executable availability without a target or scan."
+        ),
+    )
+    _configure_doctor_parser(doctor)
     return parser
 
 
@@ -235,6 +296,23 @@ def _build_scan_help_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_doctor_help_parser() -> argparse.ArgumentParser:
+    parser = _NonExitingParser(
+        prog="redforge doctor",
+        add_help=False,
+        description=(
+            "Inspect static local execution readiness without a target, "
+            "network access, installation, or scan."
+        ),
+        epilog=(
+            "Exit codes: 0 ready, 2 invalid command, 3 not ready, "
+            "5 internal failure, 130 interrupted."
+        ),
+    )
+    _configure_doctor_parser(parser)
+    return parser
+
+
 def parse_cli_args(
     argv: Sequence[str] | None = None,
 ) -> CliOptions:
@@ -246,7 +324,22 @@ def parse_cli_args(
     if cast(bool, namespace.root_help):
         return CliOptions(target=None, help_scope=HelpScope.ROOT)
     command = cast(str | None, namespace.command)
-    if command != "scan":
+    if command == CliCommand.DOCTOR.value:
+        if cast(bool, namespace.help_requested):
+            return CliOptions(
+                target=None,
+                command=CliCommand.DOCTOR,
+                help_scope=HelpScope.DOCTOR,
+            )
+        return CliOptions(
+            target=None,
+            command=CliCommand.DOCTOR,
+            output_format=OutputFormat(cast(str, namespace.output)),
+            doctor_profile=CompositionProfile(
+                cast(str, namespace.profile)
+            ),
+        )
+    if command != CliCommand.SCAN.value:
         raise CliUsageError("the scan command is required")
     if cast(bool, namespace.help_requested):
         return CliOptions(target=None, help_scope=HelpScope.SCAN)
@@ -303,6 +396,7 @@ def parse_cli_args(
             else None
         ),
         dry_run=cast(bool, namespace.dry_run),
+        command=CliCommand.SCAN,
     )
 
 
@@ -431,6 +525,7 @@ def main(
     inspector_factory: InspectorFactory | None = None,
     composition_inspection_factory: CompositionInspectionFactory | None = None,
     configuration_loader: ConfigurationLoader | None = None,
+    doctor_factory: DoctorFactory | None = None,
     diagnostic_sink: DiagnosticEventSink | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
@@ -443,6 +538,7 @@ def main(
     config: ScanConfig | None = None
     effective_output: OutputFormat | None = None
     effective_preset: ScanPreset | None = None
+    doctor_command = False
     try:
         options = parse_cli_args(argv)
         effective_output = options.output_format
@@ -452,6 +548,34 @@ def main(
         if options.help_scope is HelpScope.SCAN:
             output.write(f"{_build_scan_help_parser().format_help()}\n")
             return int(ExitCode.ACCEPTED)
+        if options.help_scope is HelpScope.DOCTOR:
+            output.write(f"{_build_doctor_help_parser().format_help()}\n")
+            return int(ExitCode.ACCEPTED)
+        if options.command is CliCommand.DOCTOR:
+            doctor_command = True
+            effective_output = options.output_format or OutputFormat.HUMAN
+            profile = (
+                options.doctor_profile
+                or CompositionProfile.RECONNAISSANCE
+            )
+            doctor = (
+                doctor_factory(profile)
+                if doctor_factory is not None
+                else _default_doctor_factory(profile)
+            )
+            result = doctor.inspect()
+            exit_code = (
+                ExitCode.ACCEPTED
+                if result.ready
+                else ExitCode.NOT_READY
+            )
+            if effective_output is OutputFormat.JSON:
+                output.write(
+                    f"{render_doctor_json(build_doctor_json_outcome(result, exit_code=int(exit_code)))}\n"
+                )
+            else:
+                output.write(f"{render_doctor_human(result)}\n")
+            return int(exit_code)
         if options.target is None:
             raise CliUsageError("scan target is required")
         configuration = (
@@ -650,6 +774,14 @@ def main(
         errors.write("Scan could not start\nComposition is invalid\n")
         return int(ExitCode.NOT_READY)
     except KeyboardInterrupt:
+        if doctor_command:
+            if _json_selected(effective_output):
+                output.write(
+                    f"{render_doctor_json(build_doctor_error_outcome(outcome='interrupted', exit_code=int(ExitCode.INTERRUPTED), message='doctor was interrupted'))}\n"
+                )
+            else:
+                errors.write("Doctor interrupted\n")
+            return int(ExitCode.INTERRUPTED)
         if _json_selected(effective_output):
             _write_json(
                 output,
@@ -664,6 +796,16 @@ def main(
         errors.write("Scan interrupted\n")
         return int(ExitCode.INTERRUPTED)
     except Exception:
+        if doctor_command:
+            if _json_selected(effective_output):
+                output.write(
+                    f"{render_doctor_json(build_doctor_error_outcome(outcome='internal_error', exit_code=int(ExitCode.INTERNAL_ERROR), message='an unexpected internal error occurred'))}\n"
+                )
+            else:
+                errors.write(
+                    "RedForge Doctor encountered an unexpected internal failure\n"
+                )
+            return int(ExitCode.INTERNAL_ERROR)
         if _json_selected(effective_output):
             _write_json(
                 output,
@@ -729,6 +871,23 @@ def _default_inspector_factory(
             else None
         ),
     ).create_inspector()
+
+
+def _default_doctor_factory(
+    profile: CompositionProfile,
+) -> DoctorService:
+    """Construct production static diagnostics only for doctor."""
+    from redforge.composition import ApplicationComposition
+
+    try:
+        RedForgeConfiguration.default()
+    except Exception:
+        configuration_valid = False
+    else:
+        configuration_valid = True
+    return ApplicationComposition(profile).create_doctor(
+        configuration_valid=configuration_valid
+    )
 
 
 def _create_cli_diagnostic_sink(

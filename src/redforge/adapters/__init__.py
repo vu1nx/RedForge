@@ -36,6 +36,10 @@ from redforge.adapters.local_smoke import (
     LocalStaticHostResolver,
 )
 from redforge.adapters.nvd import NvdAdapter, VulnerabilityProvider
+from redforge.adapters.platform import (
+    SystemPlatformInformationProbe,
+    SystemPythonRuntimeInformationProbe,
+)
 from redforge.adapters.readiness import ToolRunnerReadinessProbe
 from redforge.adapters.subfinder import (
     SUBFINDER_TOOL,
@@ -90,6 +94,8 @@ __all__ = [
     "SUBFINDER_TOOL_ID",
     "SubfinderConfig",
     "SubfinderSubdomainProvider",
+    "SystemPlatformInformationProbe",
+    "SystemPythonRuntimeInformationProbe",
     "TechnologyDetectionAdapter",
     "TechnologyDetectionResult",
     "TechnologyDetector",

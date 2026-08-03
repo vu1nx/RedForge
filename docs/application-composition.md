@@ -40,6 +40,12 @@ immutable exact-origin policy. Production `reconnaissance` composition remains
 Subfinder-backed and unchanged. See
 [Controlled Local Smoke Test](local-smoke-test.md).
 
+Composition supplies `redforge doctor` with the selected profile's canonical
+registries and static probes. Doctor receives application contracts and creates
+no orchestrator, inspector, target, Context, or plan. Full assessment reports
+its absent vulnerability provider without making that debt a reconnaissance
+failure.
+
 `reconnaissance` registers only:
 
 ```text

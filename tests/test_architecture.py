@@ -1468,3 +1468,67 @@ def test_local_smoke_seed_adapters_are_transport_free() -> None:
         for name in imports
         for prefix in forbidden
     )
+
+
+def test_doctor_is_isolated_from_domain_planning_runtime_and_capabilities() -> None:
+    for package in ("domain", "planning", "runtime", "capabilities"):
+        for path in (_SOURCE_ROOT / package).rglob("*.py"):
+            imports = _imports(path)
+            assert not any(
+                name == "redforge.doctor"
+                or name.startswith("redforge.doctor.")
+                or name == "redforge.application.doctor"
+                for name in imports
+            ), path
+
+
+def test_application_doctor_is_provider_neutral_and_target_free() -> None:
+    path = _SOURCE_ROOT / "application" / "doctor.py"
+    imports = _imports(path)
+    source = path.read_text(encoding="utf-8")
+
+    assert not any(
+        name == "redforge.adapters"
+        or name.startswith("redforge.adapters.")
+        for name in imports
+    )
+    for forbidden in (
+        "Context(",
+        "ScanConfig(",
+        "ExecutionPlan(",
+        "Pipeline(",
+        "ToolInvocation(",
+        "subprocess",
+        "socket",
+        "urllib",
+        "requests",
+        "os.environ",
+        "getenv",
+    ):
+        assert forbidden not in source
+
+
+def test_doctor_adapters_do_not_import_cli_or_network_transports() -> None:
+    for filename in ("platform.py", "readiness.py"):
+        path = _SOURCE_ROOT / "adapters" / filename
+        imports = _imports(path)
+        for forbidden in (
+            "redforge.cli",
+            "subprocess",
+            "socket",
+            "urllib",
+            "requests",
+        ):
+            assert not any(
+                name == forbidden or name.startswith(f"{forbidden}.")
+                for name in imports
+            ), path
+
+
+def test_doctor_json_uses_explicit_serialization_only() -> None:
+    source = (
+        _SOURCE_ROOT / "cli" / "doctor_output.py"
+    ).read_text(encoding="utf-8")
+
+    for forbidden in ("default=str", "__dict__", "asdict", "Context"):
+        assert forbidden not in source

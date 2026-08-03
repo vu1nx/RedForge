@@ -1,5 +1,11 @@
 # Preflight Readiness
 
+Scan preflight is target-plan scoped. `redforge doctor` reuses the accepted
+static executable readiness boundary but coordinates a separate target-free
+diagnostic. It derives requirements from composition metadata, does not prepare
+a scan, and reports full-assessment provider absence separately. See
+[RedForge Doctor](doctor.md).
+
 Preflight proves that the selected composition appears ready to start.
 
 It does not prove that the target is reachable or that execution will succeed.

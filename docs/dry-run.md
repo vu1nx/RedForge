@@ -1,5 +1,10 @@
 # Dry Run
 
+Dry run remains target-specific planning and preflight. It is distinct from
+target-free `redforge doctor`, which constructs no `ScanConfig`, Context, or
+execution plan. Use doctor for platform/tool readiness and dry run only for an
+explicitly authorized target. See [RedForge Doctor](doctor.md).
+
 Use dry run to validate configuration, derive the actual plan, and inspect
 static readiness without executing a scan:
 

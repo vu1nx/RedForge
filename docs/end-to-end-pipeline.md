@@ -1,5 +1,10 @@
 # End-to-End Pipeline
 
+Environment diagnosis precedes but is not part of this pipeline.
+`redforge doctor` creates no target, plan, Context, capability, publication, or
+history entry. Kali is the primary future controlled real-tool validation
+platform; no such validation is claimed yet.
+
 RedForge's current library runtime can plan, construct, and execute every
 implemented capability from one target context to immutable risk read models:
 

@@ -505,6 +505,23 @@ The exit code remains authoritative. JSON output does not contain evidence and
 does not create a report file. See
 [Deterministic JSON Output](docs/json-output.md) for schema version 1.
 
+## Platform readiness
+
+Kali Linux is the primary supported external-tool execution platform. Other
+Linux distributions are best effort, Windows supports development and offline
+validation, and macOS currently has library-level compatibility. See
+[Kali Linux Platform Policy](docs/kali-platform.md).
+
+```text
+redforge doctor
+redforge doctor --profile reconnaissance
+redforge doctor --profile full_assessment
+redforge doctor --output json
+```
+
+Doctor accepts no target and performs no scan, DNS lookup, network request,
+installation, or remediation. See [RedForge Doctor](docs/doctor.md).
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

@@ -1,5 +1,14 @@
 # External Tool Execution
 
+Kali Linux is the primary supported platform for controlled external-tool
+execution. Tools must be installed separately from trusted upstream projects;
+RedForge never invokes package managers, downloads tools, modifies `PATH`, or
+performs automatic updates. `redforge doctor` checks static executable
+availability without starting the executable. Production version probing is
+disabled pending verified compatibility policies. See
+[Kali Linux Platform Policy](kali-platform.md) and
+[RedForge Doctor](doctor.md).
+
 RedForge external processes cross one typed, synchronous execution boundary:
 
 ```text

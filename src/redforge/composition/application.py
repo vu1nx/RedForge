@@ -8,12 +8,15 @@ from redforge.adapters import (
     LocalSeedSubdomainProvider,
     LocalStaticHostResolver,
     LocalSubprocessToolRunner,
+    SystemPlatformInformationProbe,
+    SystemPythonRuntimeInformationProbe,
     ToolRunnerReadinessProbe,
     VulnerabilityProvider,
     create_default_tool_registry,
 )
 from redforge.application import (
     ReadinessRegistry,
+    RedForgeDoctor,
     ScanInspector,
     ScanOrchestrator,
 )
@@ -226,6 +229,31 @@ class ApplicationComposition:
             capability_registry=capability_registry,
             factory_registry=factories,
             readiness_registry=readiness,
+        )
+
+    def create_doctor(
+        self,
+        *,
+        configuration_valid: bool = True,
+    ) -> RedForgeDoctor:
+        """Construct target-free static environment diagnostics."""
+        if not isinstance(cast(object, configuration_valid), bool):
+            raise TypeError("doctor configuration status is invalid")
+        capability_registry, factories, readiness = (
+            self._create_application_components()
+        )
+        availability_probe = readiness.tool_probe
+        if availability_probe is None:
+            raise RuntimeError("doctor composition requires tool readiness")
+        return RedForgeDoctor(
+            profile=self.profile,
+            platform_probe=SystemPlatformInformationProbe(),
+            python_probe=SystemPythonRuntimeInformationProbe(),
+            capability_registry=capability_registry,
+            factory_registry=factories,
+            tool_registry=readiness.tool_registry,
+            availability_probe=availability_probe,
+            configuration_valid=configuration_valid,
         )
 
     def _create_application_components(

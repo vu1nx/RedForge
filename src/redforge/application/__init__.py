@@ -1,5 +1,6 @@
 """Public application-level scan configuration APIs."""
 
+from redforge.application.doctor import RedForgeDoctor
 from redforge.application.errors import (
     DisabledCapabilityError,
     ScanConfigurationError,
@@ -64,6 +65,7 @@ __all__ = [
     "ReadinessRequirement",
     "ReadinessRequirementKind",
     "ReadinessStatus",
+    "RedForgeDoctor",
     "ReadinessSubject",
     "ReadinessSubjectKind",
     "ScanConfig",

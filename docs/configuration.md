@@ -152,3 +152,8 @@ loads and resolves the same typed configuration, validates the canonical
 target, and only then asks composition for an execution-free inspection.
 Configuration failure therefore occurs before PATH inspection, planning
 readiness, runtime state, or tool work. See [Dry Run](dry-run.md).
+
+`redforge doctor` does not discover or load user configuration. Its
+configuration check constructs and validates internal typed defaults and
+schema version 1 without a target. Missing optional user configuration is not a
+doctor failure.

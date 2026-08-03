@@ -1,5 +1,12 @@
 # Reconnaissance Toolchain
 
+The production reconnaissance inventory is canonical registry/factory
+metadata and is also consumed by `redforge doctor`: Subfinder, HTTPX, Katana,
+and WhatWeb. Doctor checks executable availability without executing these
+tools or duplicating their names in coordinator logic. See
+[RedForge Doctor](doctor.md) and
+[Kali Linux Platform Policy](kali-platform.md).
+
 RedForge's reconnaissance profile derives its requirements from the canonical
 capability registry, execution planner, and lazy factory metadata. Tool names in
 this document are deployment requirements, not planner steps. RedForge does not

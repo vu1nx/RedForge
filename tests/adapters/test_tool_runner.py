@@ -216,6 +216,36 @@ def test_safe_environment_is_allowlisted_and_overrides_win(
     assert "blocked-secret" not in repr(result)
 
 
+def test_safe_environment_preserves_platform_home_for_tool_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Go tools can initialize user config without inheriting unrelated state."""
+    monkeypatch.setenv("HOME", "/redacted/unix-home")
+    monkeypatch.setenv("USERPROFILE", "C:\\redacted\\windows-home")
+    definition = _python_definition()
+    result = LocalSubprocessToolRunner().run(
+        definition,
+        ToolInvocation(
+            definition.tool_id,
+            arguments=(
+                "-c",
+                (
+                    "import json,os; print(json.dumps({"
+                    "'HOME': os.getenv('HOME'), "
+                    "'USERPROFILE': os.getenv('USERPROFILE')}))"
+                ),
+            ),
+        ),
+    )
+
+    assert result.status is ToolExecutionStatus.SUCCESS
+    assert json.loads(result.stdout) == {
+        "HOME": "/redacted/unix-home",
+        "USERPROFILE": "C:\\redacted\\windows-home",
+    }
+    assert "redacted" not in repr(result)
+
+
 def test_working_directory_is_per_process_and_validated(tmp_path: Path) -> None:
     runner = LocalSubprocessToolRunner()
     definition = _python_definition()

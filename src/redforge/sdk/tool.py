@@ -484,6 +484,7 @@ class ToolExecutionResult:
 
 _SAFE_INHERITED_ENVIRONMENT_KEYS = (
     "COMSPEC",
+    "HOME",
     "LANG",
     "LC_ALL",
     "LC_CTYPE",
@@ -493,6 +494,7 @@ _SAFE_INHERITED_ENVIRONMENT_KEYS = (
     "TEMP",
     "TMP",
     "TMPDIR",
+    "USERPROFILE",
     "WINDIR",
 )
 

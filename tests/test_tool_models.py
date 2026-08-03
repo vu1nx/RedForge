@@ -310,6 +310,10 @@ def test_result_status_semantics_are_validated() -> None:
 
 
 def test_runner_config_is_immutable_and_validated() -> None:
+    default_keys = ToolRunnerConfig().inherited_environment_keys
+    assert "HOME" in default_keys
+    assert "USERPROFILE" in default_keys
+
     config = ToolRunnerConfig(
         max_stdout_bytes=10,
         max_stderr_bytes=20,

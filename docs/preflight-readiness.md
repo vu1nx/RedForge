@@ -83,6 +83,13 @@ identity metadata. For canonical `httpx`, this target-free check distinguishes
 Kali's ProjectDiscovery `httpx-toolkit` from an unrelated Python `httpx`
 executable before target-facing runtime execution.
 
+Executable readiness does not prove that a tool's full startup path will
+succeed. It only resolves Katana, and Katana v1.6.1 also exits from a
+separately invoked version path before initializing user-scoped configuration,
+while a crawl initializes that configuration. The runner therefore preserves
+the platform home variable in its minimal allowlisted child environment;
+readiness still exposes neither its value nor an executable path.
+
 A provider requirement records whether composition supplied the provider role.
 Absence is `MISCONFIGURED`. An optional `ProviderReadinessProbe` may validate
 static configuration or binding compatibility without a target. No credential

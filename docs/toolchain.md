@@ -50,6 +50,11 @@ The runner captures stdout and stderr separately. Adapters parse only their
 documented machine output and never publish stderr. Runner and provider
 diagnostics are fixed sanitized messages; command vectors, executable paths,
 environment values, target evidence, stdout, and stderr are excluded.
+The minimal child environment retains `HOME` and `USERPROFILE` because some
+tool startup contracts require a platform home directory. In particular,
+Katana v1.6.1 initializes user-scoped configuration before crawling; its
+executable-resolution readiness check never reaches that initialization, and
+its separately invoked version path exits before it.
 
 ## Status and parser policy
 
@@ -104,6 +109,11 @@ enforce compatible tool versions. Machine-output format drift is deployment
 technical debt. Install tools only from trusted upstream sources and validate
 their versions in the deployment environment; RedForge provides no verified
 download commands or automatic installation.
+
+Katana v1.6.1's documented JSONL, stdin, scope, redirect, timeout, retry,
+concurrency, rate, and output-omission flags match the current adapter
+contract. Its remaining Kali revalidation is target-facing operational work
+and is not performed by repository validation.
 
 Executable candidates are ordered immutable infrastructure metadata. The
 canonical `httpx` definition prefers Kali's `httpx-toolkit`, then considers

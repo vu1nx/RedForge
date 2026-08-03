@@ -142,11 +142,15 @@ explicit allowlisted parent variables
 invocation overrides
 ```
 
-The default allowlist covers PATH, Windows process-bootstrap variables,
-temporary-directory variables, and locale variables. Unrelated parent
-credentials are not inherited. Invocation variables override inherited values,
-duplicate invocation names are rejected, and neither values nor complete
-environment mappings appear in representations or results.
+The default allowlist covers PATH, platform home-directory variables
+(`HOME` and `USERPROFILE`), Windows process-bootstrap variables,
+temporary-directory variables, and locale variables. The home variables are
+required by tools such as Katana v1.6.1, which initializes user-scoped
+configuration before starting a crawl. Values remain process-local and absent
+from result and invocation representations. Unrelated parent credentials are
+not inherited. Invocation variables override inherited values, duplicate
+invocation names are rejected, and neither values nor complete environment
+mappings appear in representations or results.
 
 `ToolRunnerConfig(inherit_environment=True)` is an explicit compatibility
 escape hatch. It is not the default. Runner configuration is immutable and

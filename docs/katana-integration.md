@@ -82,6 +82,16 @@ Normalized unique seeds are delivered as bounded newline-delimited stdin.
 There is no shell, temporary target file, inherited stdin, output file, config
 file, or reconstructed command string.
 
+This argv and stdin contract is verified against Katana v1.6.1. That release
+initializes its default user-scoped form configuration before validating and
+starting a crawl, even when form filling is disabled. RedForge therefore
+retains the platform home variable in the runner's otherwise minimal
+allowlisted child environment. Previously the version-only readiness path
+could not expose this defect: RedForge's readiness check only resolves the
+executable, and Katana's separately invoked version path exits before that
+initialization. A crawl then failed at startup after RedForge removed `HOME`.
+Real Kali revalidation of the corrected environment remains pending.
+
 ## JSONL, URL normalization, and scope
 
 The provider reads Katana's JSONL `request.endpoint` field. A top-level `url`

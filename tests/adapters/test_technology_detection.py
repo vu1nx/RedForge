@@ -98,6 +98,7 @@ def test_tool_identity_definition_and_registry_coexistence() -> None:
     assert registry.ids() == (
         HTTPX_TOOL_ID,
         KATANA_TOOL_ID,
+        ToolId("nuclei"),
         SUBFINDER_TOOL_ID,
         WHATWEB_TOOL_ID,
     )

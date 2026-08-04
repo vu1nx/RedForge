@@ -15,6 +15,7 @@ class PipelineStateKey(StrEnum):
     TECHNOLOGIES = "technologies"
     ASSET_INTELLIGENCE = "asset_intelligence"
     VULNERABILITY_INTELLIGENCE = "vulnerability_intelligence"
+    VULNERABILITIES = "vulnerabilities"
     KNOWLEDGE_GRAPH = "knowledge_graph"
     RISK_INTELLIGENCE = "risk_intelligence"
 
@@ -55,6 +56,10 @@ def validate_pipeline_state_value(key: PipelineStateKey, value: object) -> None:
         )
 
         _validate_instance(value, VulnerabilityIntelligence, key)
+    elif key is PipelineStateKey.VULNERABILITIES:
+        from redforge.sdk.vulnerability import FindingCollection
+
+        _validate_instance(value, FindingCollection, key)
     elif key is PipelineStateKey.KNOWLEDGE_GRAPH:
         from redforge.domain.knowledge_graph import KnowledgeGraph
 

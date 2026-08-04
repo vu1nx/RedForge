@@ -267,6 +267,7 @@ def test_tool_inventory_is_registry_derived_and_deterministic() -> None:
     assert tuple(tool.tool_id.value for tool in result.tools) == (
         "httpx",
         "katana",
+        "nuclei",
         "subfinder",
         "whatweb",
     )
@@ -302,7 +303,7 @@ def test_detected_version_is_sanitized_and_unverified() -> None:
 
     assert result.ready
     assert all(tool.version == "1.2.3" for tool in result.tools)
-    assert len(versions.calls) == 4
+    assert len(versions.calls) == 5
     assert all(
         tool.compatibility.value == "unverified"
         for tool in result.tools

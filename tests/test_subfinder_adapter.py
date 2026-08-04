@@ -69,6 +69,7 @@ def test_canonical_definition_and_registry_are_static() -> None:
     assert registry.ids() == (
         ToolId("httpx"),
         ToolId("katana"),
+        ToolId("nuclei"),
         SUBFINDER_TOOL_ID,
         ToolId("whatweb"),
     )

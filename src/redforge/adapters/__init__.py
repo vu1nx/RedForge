@@ -35,6 +35,12 @@ from redforge.adapters.local_smoke import (
     LocalSeedSubdomainProvider,
     LocalStaticHostResolver,
 )
+from redforge.adapters.nuclei import (
+    NUCLEI_TOOL,
+    NUCLEI_TOOL_ID,
+    NucleiConfig,
+    NucleiVulnerabilityDetectionProvider,
+)
 from redforge.adapters.nvd import NvdAdapter, VulnerabilityProvider
 from redforge.adapters.platform import (
     SystemPlatformInformationProbe,
@@ -90,6 +96,10 @@ __all__ = [
     "LocalSeedSubdomainProvider",
     "LocalStaticHostResolver",
     "NvdAdapter",
+    "NUCLEI_TOOL",
+    "NUCLEI_TOOL_ID",
+    "NucleiConfig",
+    "NucleiVulnerabilityDetectionProvider",
     "SubdomainDiscoveryResult",
     "SubdomainDiscoveryStatus",
     "SubdomainProvider",

@@ -7,6 +7,10 @@ from typing import cast
 from redforge.adapters.host_resolver import HostResolver
 from redforge.adapters.httpx import HTTPX_TOOL_ID, HttpxProbeProvider
 from redforge.adapters.katana import KATANA_TOOL_ID, KatanaWebCrawlProvider
+from redforge.adapters.nuclei import (
+    NUCLEI_TOOL_ID,
+    NucleiVulnerabilityDetectionProvider,
+)
 from redforge.adapters.nvd import VulnerabilityProvider
 from redforge.adapters.subfinder import (
     SUBFINDER_TOOL_ID,
@@ -24,6 +28,9 @@ from redforge.capabilities.knowledge_graph import KnowledgeGraphCapability
 from redforge.capabilities.risk_intelligence import RiskIntelligenceCapability
 from redforge.capabilities.subdomain_discovery import SubdomainDiscovery
 from redforge.capabilities.technology_detection import TechnologyDetectionCapability
+from redforge.capabilities.vulnerability_detection import (
+    VulnerabilityDetectionCapability,
+)
 from redforge.capabilities.vulnerability_intelligence import (
     VulnerabilityIntelligenceCapability,
 )
@@ -44,6 +51,7 @@ from redforge.sdk.capability_id import (
     RISK_INTELLIGENCE,
     SUBDOMAIN_DISCOVERY,
     TECHNOLOGY_DETECTION,
+    VULNERABILITY_DETECTION,
     VULNERABILITY_INTELLIGENCE,
     WEB_CRAWL,
     CapabilityId,
@@ -57,6 +65,7 @@ from redforge.sdk.readiness import (
 from redforge.sdk.subdomain_discovery import SubdomainProvider
 from redforge.sdk.technology_detection import TechnologyDetectionProvider
 from redforge.sdk.tool import ToolId, ToolRunner
+from redforge.sdk.vulnerability import VulnerabilityDetectionProvider
 from redforge.sdk.web_crawl import WebCrawlProvider
 
 type CapabilityFactory = Callable[[], Capability]
@@ -66,6 +75,9 @@ HTTP_PROBE_PROVIDER_ROLE = ProviderRole("http_probe_provider")
 WEB_CRAWL_PROVIDER_ROLE = ProviderRole("web_crawl_provider")
 TECHNOLOGY_PROVIDER_ROLE = ProviderRole("technology_detection_provider")
 VULNERABILITY_PROVIDER_ROLE = ProviderRole("vulnerability_provider")
+VULNERABILITY_DETECTION_PROVIDER_ROLE = ProviderRole(
+    "vulnerability_detection_provider"
+)
 
 
 def _external_requirement(
@@ -236,6 +248,7 @@ class CapabilityDependencies:
     web_crawler: WebCrawlProvider | None = None
     technology_detector: TechnologyDetectionProvider | None = None
     vulnerability_provider: VulnerabilityProvider | None = None
+    vulnerability_detector: VulnerabilityDetectionProvider | None = None
     tool_runner: ToolRunner | None = None
     exact_target: ExactNetworkTarget | None = None
 
@@ -250,6 +263,7 @@ def create_default_factory_registry(
     web_crawler: WebCrawlProvider | None = None,
     technology_detector: TechnologyDetectionProvider | None = None,
     vulnerability_provider: VulnerabilityProvider | None = None,
+    vulnerability_detector: VulnerabilityDetectionProvider | None = None,
     tool_runner: ToolRunner | None = None,
 ) -> CapabilityFactoryRegistry:
     """Return lazy factories for every executable default descriptor."""
@@ -260,6 +274,7 @@ def create_default_factory_registry(
         web_crawler=web_crawler,
         technology_detector=technology_detector,
         vulnerability_provider=vulnerability_provider,
+        vulnerability_detector=vulnerability_detector,
         tool_runner=tool_runner,
     )
     if dependencies is not None and any(
@@ -271,6 +286,7 @@ def create_default_factory_registry(
             web_crawler,
             technology_detector,
             vulnerability_provider,
+            vulnerability_detector,
             tool_runner,
         )
     ):
@@ -392,6 +408,25 @@ def create_default_factory_registry(
         ),
     )
     register(ASSET_INTELLIGENCE, AssetIntelligenceCapability)
+    register(
+        VULNERABILITY_DETECTION,
+        lambda: VulnerabilityDetectionCapability(
+            provider=(
+                configured.vulnerability_detector
+                or NucleiVulnerabilityDetectionProvider(
+                    runner=(
+                        configured.tool_runner
+                        or LocalSubprocessToolRunner()
+                    )
+                )
+            )
+        ),
+        requirements=_external_requirement(
+            configured.vulnerability_detector,
+            provider_role=VULNERABILITY_DETECTION_PROVIDER_ROLE,
+            tool_id=NUCLEI_TOOL_ID,
+        ),
+    )
     register(
         VULNERABILITY_INTELLIGENCE,
         lambda: VulnerabilityIntelligenceCapability(

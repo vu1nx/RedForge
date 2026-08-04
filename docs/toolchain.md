@@ -2,7 +2,8 @@
 
 The production reconnaissance inventory is canonical registry/factory
 metadata and is also consumed by `redforge doctor`: Subfinder, HTTPX, Katana,
-and WhatWeb. Doctor checks executable availability without duplicating their
+WhatWeb, plus the architecture-only Nuclei definition. Doctor checks
+executable availability without duplicating their
 names in coordinator logic. Identity-constrained definitions may execute only
 their declared target-free version arguments. See
 [RedForge Doctor](doctor.md) and
@@ -39,12 +40,16 @@ has succeeded.
 | `httpx` | `httpx-toolkit`, then `httpx` after identity validation | `HttpxProbeProvider`; bounded normalized host list on stdin | bounded JSONL on stdout |
 | `katana` | `katana` | `KatanaWebCrawlProvider`; bounded in-scope HTTP(S) seeds on stdin | bounded JSONL on stdout |
 | `whatweb` | `whatweb` | `WhatWebTechnologyDetectionProvider`; bounded canonical endpoint arguments | bounded JSON array in an adapter-owned temporary file |
+| `nuclei` | `nuclei` | `NucleiVulnerabilityDetectionProvider`; bounded canonical `HTTP_ENDPOINTS` on stdin | bounded JSONL on stdout |
 
 Every invocation is a typed argument vector executed with `shell=False`.
 Subfinder's target is canonicalized before it becomes the value following
 `-d`. HTTPX and Katana receive deterministic newline-delimited stdin, so target
 values cannot become flags. WhatWeb accepts only normalized HTTP(S) endpoints
 generated from typed crawler evidence; arbitrary flags are not supported.
+Nuclei receives only typed HTTP probe endpoints and disables update checks,
+additional HTTP probing, OAST, retries, raw request/response output, and
+template embedding.
 
 The runner captures stdout and stderr separately. Adapters parse only their
 documented machine output and never publish stderr. Runner and provider
@@ -65,7 +70,7 @@ runtime error. Permission and operational failures become sanitized errors;
 non-zero exits become provider failures; and timeouts with usable complete
 evidence may become partial results according to each adapter's contract.
 
-All four parsers:
+All external-tool result parsers:
 
 - accept explicit bounded text or an adapter-owned file;
 - reject malformed and out-of-scope records without retaining raw records;
@@ -109,6 +114,10 @@ enforce compatible tool versions. Machine-output format drift is deployment
 technical debt. Install tools only from trusted upstream sources and validate
 their versions in the deployment environment; RedForge provides no verified
 download commands or automatic installation.
+
+Nuclei is registered as architecture metadata but is not part of the
+reconnaissance goal closure. Its parser and invocation contract have only
+offline `FakeToolRunner` coverage; controlled real-tool validation is deferred.
 
 Katana v1.6.1's documented JSONL, stdin, scope, redirect, timeout, retry,
 concurrency, rate, and output-omission flags match the current adapter

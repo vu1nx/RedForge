@@ -74,6 +74,7 @@ def test_tool_identity_definition_and_default_registry() -> None:
     assert create_default_tool_registry().ids() == (
         HTTPX_TOOL_ID,
         KATANA_TOOL_ID,
+        ToolId("nuclei"),
         SUBFINDER_TOOL_ID,
         WHATWEB_TOOL_ID,
     )

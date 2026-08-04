@@ -49,6 +49,7 @@ WEB_CRAWL = CapabilityId("web_crawl")
 TECHNOLOGY_DETECTION = CapabilityId("technology_detection")
 ASSET_INTELLIGENCE = CapabilityId("asset_intelligence")
 VULNERABILITY_INTELLIGENCE = CapabilityId("vulnerability_intelligence")
+VULNERABILITY_DETECTION = CapabilityId("vulnerability_detection")
 KNOWLEDGE_GRAPH = CapabilityId("knowledge_graph")
 RISK_INTELLIGENCE = CapabilityId("risk_intelligence")
 
@@ -60,6 +61,7 @@ BUILTIN_CAPABILITY_IDS = (
     RISK_INTELLIGENCE,
     SUBDOMAIN_DISCOVERY,
     TECHNOLOGY_DETECTION,
+    VULNERABILITY_DETECTION,
     VULNERABILITY_INTELLIGENCE,
     WEB_CRAWL,
 )

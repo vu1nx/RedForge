@@ -9,6 +9,7 @@ from redforge.sdk.capability_id import (
     RISK_INTELLIGENCE,
     SUBDOMAIN_DISCOVERY,
     TECHNOLOGY_DETECTION,
+    VULNERABILITY_DETECTION,
     VULNERABILITY_INTELLIGENCE,
     WEB_CRAWL,
 )
@@ -88,6 +89,15 @@ DEFAULT_CAPABILITY_DEFINITIONS = (
         requires=(PipelineStateKey.ENDPOINTS,),
         provides=(PipelineStateKey.TECHNOLOGIES,),
         tags=("analysis", "http", "recon"),
+    ),
+    CapabilityDefinition(
+        capability_id=VULNERABILITY_DETECTION,
+        display_name="Vulnerability Detection",
+        description="Detects normalized findings on responsive HTTP endpoints.",
+        version="1.0",
+        requires=(PipelineStateKey.HTTP_ENDPOINTS,),
+        provides=(PipelineStateKey.VULNERABILITIES,),
+        tags=("active", "detection", "vulnerability"),
     ),
     CapabilityDefinition(
         capability_id=VULNERABILITY_INTELLIGENCE,

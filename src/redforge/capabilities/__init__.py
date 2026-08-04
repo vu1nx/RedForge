@@ -11,6 +11,9 @@ from redforge.capabilities.knowledge_graph import KnowledgeGraphCapability
 from redforge.capabilities.risk_intelligence import RiskIntelligenceCapability
 from redforge.capabilities.subdomain_discovery import SubdomainDiscovery
 from redforge.capabilities.technology_detection import TechnologyDetectionCapability
+from redforge.capabilities.vulnerability_detection import (
+    VulnerabilityDetectionCapability,
+)
 from redforge.capabilities.vulnerability_intelligence import (
     VulnerabilityIntelligenceCapability,
 )
@@ -26,5 +29,6 @@ __all__ = [
     "SubdomainDiscovery",
     "TechnologyDetectionCapability",
     "VulnerabilityIntelligenceCapability",
+    "VulnerabilityDetectionCapability",
     "WebCrawlCapability",
 ]

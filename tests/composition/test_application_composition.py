@@ -42,6 +42,7 @@ FULL_ASSESSMENT_IDS = (
     *RECONNAISSANCE_IDS,
     "asset_intelligence",
     "vulnerability_intelligence",
+    "vulnerability_detection",
     "knowledge_graph",
     "risk_intelligence",
 )
@@ -240,7 +241,11 @@ def test_full_profile_accepts_explicit_provider_and_readiness_probe() -> None:
     )
 
     assert result.runtime_status is Status.SUCCESS
-    assert result.pipeline_result.executed_capabilities == FULL_ASSESSMENT_IDS
+    assert result.pipeline_result.executed_capabilities == tuple(
+        item
+        for item in FULL_ASSESSMENT_IDS
+        if item != "vulnerability_detection"
+    )
     assert probe.calls == 1
 
 

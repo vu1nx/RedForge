@@ -399,6 +399,19 @@ The endpoint is a documentation-only placeholder. RedForge does not install
 WhatWeb, probe its version during composition, or configure authentication.
 See [WhatWeb Technology Detection Integration](docs/technology-detection-integration.md).
 
+### Nuclei vulnerability-detection foundation
+
+The provider-neutral `vulnerability_detection` capability consumes
+`HTTP_ENDPOINTS` and atomically publishes an immutable `FindingCollection` as
+`VULNERABILITIES`. The replaceable Nuclei adapter owns only the `nuclei` tool
+contract, bounded invocation construction, and strict JSONL normalization;
+Nuclei never becomes a planner step.
+
+This is an offline-validated architecture foundation. It does not yet include
+real Nuclei execution validation, CVSS/EPSS/KEV enrichment, exploit
+intelligence, attack-graph integration, risk scoring, or remediation. See
+[Nuclei Vulnerability Detection Architecture](docs/nuclei-vulnerability-detection.md).
+
 ## Multi-Output State
 
 A capability may publish several typed state values from one execution. The

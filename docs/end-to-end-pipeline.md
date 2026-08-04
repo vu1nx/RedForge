@@ -18,6 +18,8 @@ subdomain_discovery -> SUBDOMAINS
 host_resolution -> HOSTS
         |
 http_probe -> ALIVE_HOSTS + HTTP_ENDPOINTS
+        |                 |
+        |                 +-> vulnerability_detection -> VULNERABILITIES
         |
 web_crawl -> ENDPOINTS
         |
@@ -66,7 +68,7 @@ External tool identities do not appear in execution plans.
 ## Composition and closure
 
 `CapabilityRegistry` holds immutable definitions only.
-`CapabilityFactoryRegistry` holds one lazy factory for each of the nine default
+`CapabilityFactoryRegistry` holds one lazy factory for each of the ten default
 capability IDs. `ExecutionPlanner` expands a requested state through unique
 producers, and `PipelineBuilder` creates one fresh capability for each plan
 step. `PlannedExecution` delegates the resulting pipeline to the existing
@@ -92,7 +94,8 @@ risk_intelligence
 ```
 
 The default tool registry independently contains `subfinder`, `httpx`,
-`katana`, and `whatweb`. Those identities select replaceable adapters; they are
+`katana`, `whatweb`, and the architecture-only `nuclei` definition. Those
+identities select replaceable adapters; they are
 not capabilities. Registry, factory, planner, and builder construction performs
 no process execution, availability probe, or network access.
 
@@ -106,6 +109,7 @@ The canonical runtime values are:
 | `HOSTS` | `host_resolution` | `HostResolution` |
 | `ALIVE_HOSTS` | `http_probe` | tuple of `Host` |
 | `HTTP_ENDPOINTS` | `http_probe` | tuple of `HttpProbeEndpoint` |
+| `VULNERABILITIES` | `vulnerability_detection` | `FindingCollection` |
 | `ENDPOINTS` | `web_crawl` | tuple of `Endpoint` |
 | `TECHNOLOGIES` | `technology_detection` | tuple of `Technology` |
 | `ASSET_INTELLIGENCE` | `asset_intelligence` | `AssetIntelligence` |

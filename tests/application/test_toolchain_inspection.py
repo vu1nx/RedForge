@@ -95,6 +95,7 @@ def test_default_reconnaissance_tool_definitions_are_stable_and_path_free() -> N
     ) == (
         ("httpx", ("httpx-toolkit", "httpx")),
         ("katana", ("katana",)),
+        ("nuclei", ("nuclei",)),
         ("subfinder", ("subfinder",)),
         ("whatweb", ("whatweb",)),
     )

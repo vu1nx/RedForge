@@ -40,6 +40,26 @@ def test_capabilities_do_not_import_transport_libraries_or_socket() -> None:
         ), path
 
 
+def test_vulnerability_detection_boundaries_are_provider_neutral() -> None:
+    capability = (
+        _SOURCE_ROOT / "capabilities" / "vulnerability_detection.py"
+    )
+    adapter = _SOURCE_ROOT / "adapters" / "nuclei" / "provider.py"
+
+    assert not any(
+        name == "redforge.adapters"
+        or name.startswith("redforge.adapters.")
+        or name == "subprocess"
+        for name in _imports(capability)
+    )
+    assert not any(
+        name == "redforge.runtime"
+        or name.startswith("redforge.runtime.")
+        or name == "redforge.sdk.context"
+        for name in _imports(adapter)
+    )
+
+
 def test_vulnerability_capability_does_not_reference_nvd_payload_keys() -> None:
     source = (_SOURCE_ROOT / "capabilities" / "vulnerability_intelligence.py").read_text(
         encoding="utf-8"

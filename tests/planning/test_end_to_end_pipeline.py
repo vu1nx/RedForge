@@ -52,7 +52,11 @@ FULL_ORDER = (
     "knowledge_graph",
     "risk_intelligence",
 )
-FULL_STATE = tuple(PipelineStateKey)
+FULL_STATE = tuple(
+    key
+    for key in PipelineStateKey
+    if key is not PipelineStateKey.VULNERABILITIES
+)
 
 
 @dataclass(slots=True)

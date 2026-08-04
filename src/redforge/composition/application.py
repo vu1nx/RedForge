@@ -42,6 +42,7 @@ from redforge.sdk import (
     RISK_INTELLIGENCE,
     SUBDOMAIN_DISCOVERY,
     TECHNOLOGY_DETECTION,
+    VULNERABILITY_DETECTION,
     VULNERABILITY_INTELLIGENCE,
     WEB_CRAWL,
     CapabilityId,
@@ -53,6 +54,7 @@ from redforge.sdk import (
     ToolReadinessProbe,
     ToolRegistry,
     ToolRunner,
+    VulnerabilityDetectionProvider,
     WebCrawlProvider,
 )
 from redforge.sdk.http_probe import HttpProbeProvider
@@ -68,6 +70,7 @@ _FULL_ASSESSMENT_CAPABILITIES = (
     *_RECONNAISSANCE_CAPABILITIES,
     ASSET_INTELLIGENCE,
     VULNERABILITY_INTELLIGENCE,
+    VULNERABILITY_DETECTION,
     KNOWLEDGE_GRAPH,
     RISK_INTELLIGENCE,
 )
@@ -92,6 +95,10 @@ class CompositionProviders:
         repr=False,
     )
     vulnerability_provider: VulnerabilityProvider | None = field(
+        default=None,
+        repr=False,
+    )
+    vulnerability_detector: VulnerabilityDetectionProvider | None = field(
         default=None,
         repr=False,
     )
@@ -192,6 +199,7 @@ class ApplicationComposition:
                     self.providers.web_crawler,
                     self.providers.technology_detector,
                     self.providers.vulnerability_provider,
+                    self.providers.vulnerability_detector,
                 )
             ):
                 raise ValueError(
@@ -324,6 +332,7 @@ class ApplicationComposition:
             web_crawler=providers.web_crawler,
             technology_detector=providers.technology_detector,
             vulnerability_provider=providers.vulnerability_provider,
+            vulnerability_detector=providers.vulnerability_detector,
             tool_runner=runner,
         )
 
@@ -339,6 +348,10 @@ class ApplicationComposition:
             (
                 TECHNOLOGY_DETECTION,
                 providers.technology_detector,
+            ),
+            (
+                VULNERABILITY_DETECTION,
+                providers.vulnerability_detector,
             ),
         )
         enabled = frozenset(self.capability_ids)

@@ -72,6 +72,7 @@ def test_default_registry_contains_only_existing_descriptor_contracts() -> None:
         "risk_intelligence",
         "subdomain_discovery",
         "technology_detection",
+        "vulnerability_detection",
         "vulnerability_intelligence",
         "web_crawl",
     )

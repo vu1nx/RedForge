@@ -51,6 +51,7 @@ from redforge.sdk import (
     Result,
     Status,
     SubdomainDiscoveryResult,
+    TechnologyDetectionPartialReason,
     TechnologyDetectionProviderResult,
     WebCrawlProviderResult,
 )
@@ -187,6 +188,15 @@ class FakeTechnologyDetector:
                     category="programming-language",
                     source="https://app.example.com/",
                     confidence=100,
+                ),
+            )
+        if self.scenario.mode == "technology_partial":
+            return TechnologyDetectionProviderResult(
+                technologies=technologies,
+                status=TechnologyDetectionProviderStatus.PARTIAL,
+                malformed_record_count=1,
+                partial_reasons=(
+                    TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED,
                 ),
             )
         return TechnologyDetectionProviderResult(technologies=technologies)
@@ -367,6 +377,34 @@ def test_partial_diagnostic_preserves_status_and_acceptance_separately() -> None
     assert created.event_type is DiagnosticEventType.SCAN_RESULT_CREATED
     assert created.fields.runtime_status == "PARTIAL"
     assert created.fields.accepted is True
+    assert result.runtime_status is Status.PARTIAL
+    assert result.accepted
+
+
+def test_technology_partial_reason_reaches_diagnostic_event_only() -> None:
+    sink = RecordingSink()
+
+    result = _orchestrator(
+        Scenario(mode="technology_partial"),
+        diagnostic_sink=sink,
+    ).run(
+        ScanConfig.for_reconnaissance(
+            "example.com",
+            allow_partial_results=True,
+        )
+    )
+
+    partial = tuple(
+        event
+        for event in sink.events
+        if event.event_type is DiagnosticEventType.CAPABILITY_PARTIAL
+    )
+    assert len(partial) == 1
+    assert partial[0].fields.capability_id == "technology_detection"
+    assert partial[0].fields.runtime_status == "PARTIAL"
+    assert partial[0].fields.partial_reasons == (
+        TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED,
+    )
     assert result.runtime_status is Status.PARTIAL
     assert result.accepted
 

@@ -62,5 +62,9 @@ def _structured_fields(value: DiagnosticFields) -> dict[str, object]:
     for item in fields(value):
         field_value = getattr(value, item.name)
         if field_value is not None:
-            structured[item.name] = field_value
+            structured[item.name] = (
+                [reason.value for reason in field_value]
+                if item.name == "partial_reasons"
+                else field_value
+            )
     return structured

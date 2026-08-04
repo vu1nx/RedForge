@@ -35,6 +35,7 @@ from redforge.observability import (
     DiagnosticEvent,
     DiagnosticEventSink,
     DiagnosticEventType,
+    DiagnosticFields,
     DiagnosticSeverity,
     emit_safely,
 )
@@ -56,6 +57,7 @@ from redforge.sdk import (
     PipelineStateKey,
     Result,
     Status,
+    TechnologyDetectionPartialReason,
     ToolId,
 )
 
@@ -152,6 +154,30 @@ class DiagnosticFakeOrchestrator(FakeOrchestrator):
                     message="Scan execution started",
                 ),
             )
+        return super().run(config)
+
+
+class PartialDiagnosticFakeOrchestrator(FakeOrchestrator):
+    def __init__(self, sink: DiagnosticEventSink) -> None:
+        super().__init__(status=Status.PARTIAL, accepted=False)
+        self._sink = sink
+
+    def run(self, config: ScanConfig) -> ScanResult:
+        emit_safely(
+            self._sink,
+            DiagnosticEvent(
+                event_type=DiagnosticEventType.CAPABILITY_PARTIAL,
+                severity=DiagnosticSeverity.WARNING,
+                message="Capability completed partially",
+                fields=DiagnosticFields(
+                    capability_id="technology_detection",
+                    runtime_status="PARTIAL",
+                    partial_reasons=(
+                        TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED,
+                    ),
+                ),
+            ),
+        )
         return super().run(config)
 
 
@@ -1210,6 +1236,48 @@ def test_json_outcome_stays_one_stdout_document_with_stderr_diagnostics() -> Non
     assert diagnostic["event_type"] == "scan_execution_started"
     assert "scan_execution_started" not in stdout
     assert '"outcome"' not in stderr
+
+
+def test_partial_reasons_remain_in_stderr_diagnostics_only() -> None:
+    stdout = StringIO()
+    stderr = StringIO()
+
+    def composition(
+        profile: object,
+        sink: DiagnosticEventSink,
+    ) -> PartialDiagnosticFakeOrchestrator:
+        _ = profile
+        return PartialDiagnosticFakeOrchestrator(sink)
+
+    code = main(
+        [
+            "scan",
+            "authorized.example",
+            "--output",
+            "json",
+            "--log-level",
+            "debug",
+        ],
+        composition_factory=composition,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    outcome = _json_document(stdout.getvalue())
+    diagnostic = cast(dict[str, Any], json.loads(stderr.getvalue()))
+    fields = cast(dict[str, Any], diagnostic["fields"])
+
+    assert code == outcome["exit_code"] == ExitCode.NOT_ACCEPTED
+    assert outcome["runtime_status"] == "partial"
+    assert "partial_reasons" not in outcome
+    assert diagnostic["event_type"] == "capability_partial"
+    assert fields == {
+        "capability_id": "technology_detection",
+        "runtime_status": "PARTIAL",
+        "partial_reasons": ["malformed_records_skipped"],
+    }
+    assert "capability_partial" not in stdout.getvalue()
+    assert '"outcome"' not in stderr.getvalue()
 
 
 def test_configured_log_level_and_explicit_cli_precedence(

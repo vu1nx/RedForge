@@ -29,12 +29,17 @@ from redforge.sdk.capability_id import CapabilityId, normalize_capability_id
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, StatePublication, Status
 from redforge.sdk.state import PipelineStateKey, validate_pipeline_state_value
+from redforge.sdk.technology_detection import TechnologyDetectionPartialReason
 
 _STATUS_PRECEDENCE: dict[Status, int] = {
     Status.SUCCESS: 0,
     Status.PARTIAL: 1,
     Status.FAILURE: 2,
     Status.ERROR: 3,
+}
+_PARTIAL_REASON_ORDER = {
+    reason: index
+    for index, reason in enumerate(TechnologyDetectionPartialReason)
 }
 
 
@@ -355,7 +360,7 @@ class Pipeline:
                 _emit_capability_terminal(
                     sink,
                     diagnostic_id,
-                    result.status,
+                    result,
                 )
                 break
             if runtime_id is None:
@@ -458,7 +463,7 @@ class Pipeline:
             _emit_capability_terminal(
                 sink,
                 diagnostic_id,
-                result.status,
+                result,
             )
             if result.status in {Status.FAILURE, Status.ERROR}:
                 break
@@ -534,8 +539,9 @@ def _emit_capability_started(
 def _emit_capability_terminal(
     sink: DiagnosticEventSink,
     capability_id: str | None,
-    status: Status,
+    result: Result[Any],
 ) -> None:
+    status = result.status
     event_type, severity, message = {
         Status.SUCCESS: (
             DiagnosticEventType.CAPABILITY_COMPLETED,
@@ -567,8 +573,35 @@ def _emit_capability_terminal(
             fields=DiagnosticFields(
                 capability_id=capability_id,
                 runtime_status=status.name,
+                partial_reasons=_approved_partial_reasons(result),
             ),
         ),
+    )
+
+
+def _approved_partial_reasons(
+    result: Result[Any],
+) -> tuple[TechnologyDetectionPartialReason, ...] | None:
+    if result.status is not Status.PARTIAL:
+        return None
+    metadata = cast(object, result.metadata)
+    if not isinstance(metadata, dict):
+        return None
+    value = cast(dict[object, object], metadata).get("partial_reasons")
+    if not isinstance(value, tuple) or not value:
+        return None
+    raw_reasons = cast(tuple[object, ...], value)
+    if len(raw_reasons) > len(TechnologyDetectionPartialReason) or not all(
+        type(reason) is TechnologyDetectionPartialReason
+        for reason in raw_reasons
+    ):
+        return None
+    reasons = cast(tuple[TechnologyDetectionPartialReason, ...], raw_reasons)
+    return tuple(
+        sorted(
+            set(reasons),
+            key=_PARTIAL_REASON_ORDER.__getitem__,
+        )
     )
 
 

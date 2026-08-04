@@ -76,12 +76,13 @@ _EVENT_MESSAGES = MappingProxyType(
 
 @dataclass(frozen=True, slots=True)
 class DiagnosticFields:
-    """Closed set of bounded scalar fields safe for structured diagnostics."""
+    """Closed set of bounded fields safe for structured diagnostics."""
 
     preset: str | None = None
     composition_profile: str | None = None
     capability_id: str | None = None
     runtime_status: str | None = None
+    partial_reasons: tuple[StrEnum, ...] | None = None
     accepted: bool | None = None
     history_count: int | None = None
     planned_steps: int | None = None
@@ -97,6 +98,13 @@ class DiagnosticFields:
         for item in fields(self):
             value = cast(object, getattr(self, item.name))
             if value is None:
+                continue
+            if item.name == "partial_reasons":
+                object.__setattr__(
+                    self,
+                    item.name,
+                    _normalize_partial_reasons(value),
+                )
                 continue
             if isinstance(value, str):
                 _validate_text(value, field_name=item.name, maximum=512)
@@ -146,3 +154,30 @@ def _validate_text(value: str, *, field_name: str, maximum: int) -> None:
         or any(ord(character) < 32 for character in value)
     ):
         raise ValueError(f"diagnostic {field_name} is invalid")
+
+
+def _normalize_partial_reasons(value: object) -> tuple[StrEnum, ...]:
+    if not isinstance(value, tuple) or not all(
+        isinstance(reason, StrEnum)
+        for reason in cast(tuple[object, ...], value)
+    ):
+        raise TypeError("diagnostic partial reasons must be typed")
+    reasons = cast(tuple[StrEnum, ...], value)
+    if not reasons or len(reasons) > 8:
+        raise ValueError("diagnostic partial reason count is invalid")
+    by_value: dict[str, StrEnum] = {}
+    for reason in reasons:
+        code = reason.value
+        _validate_text(code, field_name="partial reason", maximum=64)
+        if (
+            code.startswith("_")
+            or code.endswith("_")
+            or "__" in code
+            or any(
+                character not in "abcdefghijklmnopqrstuvwxyz0123456789_"
+                for character in code
+            )
+        ):
+            raise ValueError("diagnostic partial reason is invalid")
+        by_value.setdefault(code, reason)
+    return tuple(by_value[code] for code in sorted(by_value))

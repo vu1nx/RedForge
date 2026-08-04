@@ -41,9 +41,23 @@ field.
 ## Safe fields and failure policy
 
 The closed field set permits only bounded strings, non-negative integers,
-booleans, and nulls for identities and summaries such as capability ID,
-runtime status, acceptance, history count, preflight counts, state key, and
+booleans, nulls, and one bounded immutable sequence of typed safe PARTIAL
+reason codes. Identity and summary fields include capability ID, runtime
+status, acceptance, history count, preflight counts, state key, and
 observed/allowed limits.
+
+Terminal `capability_partial` events may include `partial_reasons` when a
+capability supplied the approved typed SDK metadata contract. The runtime
+accepts only the existing `TechnologyDetectionPartialReason` values, removes
+duplicates, bounds the input count, and never copies arbitrary result metadata.
+Current safe values are `execution_timeout`, `malformed_records_skipped`,
+`unassociated_records_skipped`, and `output_truncated`. A PARTIAL result
+without approved reasons retains the original event shape. Reasons are
+diagnostic only; runtime status remains authoritative.
+
+Technology detection is currently the only capability with an approved typed
+PARTIAL-reason contract. A future capability must define and receive review
+for its own bounded typed contract before runtime may expose its reasons.
 
 Events never contain discovered subdomains, hosts, endpoints, technologies,
 vulnerabilities, risk evidence, Context state, command arguments, executable
@@ -70,6 +84,12 @@ and writes one compact deterministic JSON object per accepted logging record:
 
 Keys and fields have deterministic order, `allow_nan=False`, and no generic
 fallback serializer, exception info, stack info, or multiline values.
+Typed reason tuples are serialized explicitly as deterministic JSON string
+arrays:
+
+```json
+{"schema_version":1,"event_type":"capability_partial","severity":"WARNING","message":"Capability completed partially","fields":{"capability_id":"technology_detection","runtime_status":"PARTIAL","partial_reasons":["malformed_records_skipped"]}}
+```
 
 ## Configuration and CLI
 

@@ -2,7 +2,7 @@
 
 from dataclasses import FrozenInstanceError
 from itertools import product
-from typing import Any
+from typing import Any, cast
 
 import pytest  # type: ignore[reportMissingImports]
 
@@ -24,6 +24,11 @@ from redforge.domain.risk_intelligence import RiskIntelligence
 from redforge.domain.target import Target
 from redforge.domain.technology import Technology
 from redforge.domain.vulnerability_intelligence import VulnerabilityIntelligence
+from redforge.observability import (
+    DiagnosticEvent,
+    DiagnosticEventSink,
+    DiagnosticEventType,
+)
 from redforge.runtime.pipeline import (
     CapabilityExecution,
     Pipeline,
@@ -35,6 +40,7 @@ from redforge.sdk.capability import Capability
 from redforge.sdk.capability_id import CapabilityId
 from redforge.sdk.context import Context
 from redforge.sdk.result import Result, StatePublication, Status
+from redforge.sdk.technology_detection import TechnologyDetectionPartialReason
 
 
 class MockCapability(Capability):
@@ -105,6 +111,16 @@ class PipelineResolver:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+class RecordingDiagnosticSink:
+    """Retain immutable diagnostic events for runtime-boundary assertions."""
+
+    def __init__(self) -> None:
+        self.events: list[DiagnosticEvent] = []
+
+    def emit(self, event: DiagnosticEvent) -> None:
+        self.events.append(event)
 
 
 def _result(
@@ -207,6 +223,130 @@ def test_partial_is_global_stored_and_does_not_stop_later_success() -> None:
     assert result.executions[0].result is partial_result
     assert result.executions[0].result.errors == ["one item skipped"]
     assert result.executions[0].result.metadata == {"skipped": 1}
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        (
+            {
+                "partial_reasons": (
+                    TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED,
+                )
+            },
+            (
+                TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED,
+            ),
+        ),
+        (
+            {
+                "partial_reasons": (
+                    TechnologyDetectionPartialReason.OUTPUT_TRUNCATED,
+                    TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+                    TechnologyDetectionPartialReason.OUTPUT_TRUNCATED,
+                )
+            },
+            (
+                TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+                TechnologyDetectionPartialReason.OUTPUT_TRUNCATED,
+            ),
+        ),
+        ({}, None),
+        ({"partial_reasons": ("malformed_records_skipped",)}, None),
+        (
+            {
+                "partial_reasons": (
+                    (
+                        TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+                    ),
+                )
+            },
+            None,
+        ),
+        ({"partial_reasons": (object(),)}, None),
+        (
+            {
+                "partial_reasons": (
+                    TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+                )
+                * 5
+            },
+            None,
+        ),
+        (
+            {
+                "partial_reasons": {"raw": "secret https://target.test"},
+                "provider_payload": {
+                    "stdout": "secret",
+                    "target": "https://target.test",
+                },
+            },
+            None,
+        ),
+    ],
+)
+def test_partial_diagnostics_allowlist_only_typed_bounded_reasons(
+    metadata: dict[str, Any],
+    expected: tuple[TechnologyDetectionPartialReason, ...] | None,
+) -> None:
+    sink = RecordingDiagnosticSink()
+    pipeline = Pipeline()
+    pipeline.add(
+        MockCapability(
+            "partial",
+            _result(Status.PARTIAL, metadata=metadata),
+        )
+    )
+
+    pipeline.run(
+        "example.com",
+        diagnostic_sink=cast(DiagnosticEventSink, sink),
+    )
+
+    terminal = sink.events[-1]
+    assert terminal.event_type is DiagnosticEventType.CAPABILITY_PARTIAL
+    assert terminal.fields.partial_reasons == expected
+    rendered = repr(terminal)
+    assert "target.test" not in rendered
+    assert "stdout" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("status", "event_type"),
+    [
+        (Status.SUCCESS, DiagnosticEventType.CAPABILITY_COMPLETED),
+        (Status.FAILURE, DiagnosticEventType.CAPABILITY_FAILED),
+        (Status.ERROR, DiagnosticEventType.CAPABILITY_ERROR),
+    ],
+)
+def test_nonpartial_terminal_events_ignore_reason_metadata(
+    status: Status,
+    event_type: DiagnosticEventType,
+) -> None:
+    sink = RecordingDiagnosticSink()
+    pipeline = Pipeline()
+    pipeline.add(
+        MockCapability(
+            "terminal",
+            _result(
+                status,
+                metadata={
+                    "partial_reasons": (
+                        TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+                    )
+                },
+            ),
+        )
+    )
+
+    pipeline.run(
+        "example.com",
+        diagnostic_sink=cast(DiagnosticEventSink, sink),
+    )
+
+    terminal = sink.events[-1]
+    assert terminal.event_type is event_type
+    assert terminal.fields.partial_reasons is None
 
 
 @pytest.mark.parametrize("status", [Status.FAILURE, Status.ERROR])

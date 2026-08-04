@@ -1255,6 +1255,18 @@ def test_observability_core_is_provider_neutral_and_side_effect_free() -> None:
             assert forbidden not in source, path
 
 
+def test_runtime_partial_diagnostics_have_no_provider_specific_branch() -> None:
+    path = _SOURCE_ROOT / "runtime" / "pipeline.py"
+    imports = _imports(path)
+    source = path.read_text(encoding="utf-8")
+
+    assert "redforge.adapters.technology_detection" not in imports
+    assert 'capability_id == "technology_detection"' not in source
+    assert "result.metadata.items(" not in source
+    assert '.get("partial_reasons")' in source
+    assert "TechnologyDetectionPartialReason" in source
+
+
 def test_python_logging_configuration_is_confined_and_local() -> None:
     allowed = {
         _SOURCE_ROOT / "adapters" / "observability.py",

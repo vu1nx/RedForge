@@ -18,6 +18,7 @@ from redforge.observability import (
     NullDiagnosticEventSink,
     emit_safely,
 )
+from redforge.sdk import TechnologyDetectionPartialReason
 
 
 def _event(
@@ -105,6 +106,32 @@ def test_event_message_is_fixed_by_typed_event_identity() -> None:
         )
 
 
+def test_partial_reasons_are_typed_bounded_deduplicated_and_ordered() -> None:
+    fields = DiagnosticFields(
+        partial_reasons=(
+            TechnologyDetectionPartialReason.UNASSOCIATED_RECORDS_SKIPPED,
+            TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+            TechnologyDetectionPartialReason.UNASSOCIATED_RECORDS_SKIPPED,
+        )
+    )
+
+    assert fields.partial_reasons == (
+        TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+        TechnologyDetectionPartialReason.UNASSOCIATED_RECORDS_SKIPPED,
+    )
+    with pytest.raises(TypeError, match="must be typed"):
+        DiagnosticFields(
+            partial_reasons=("malformed_records_skipped",),  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="count"):
+        DiagnosticFields(
+            partial_reasons=(
+                TechnologyDetectionPartialReason.EXECUTION_TIMEOUT,
+            )
+            * 9
+        )
+
+
 def test_null_sink_and_ordinary_sink_failure_are_semantically_silent() -> None:
     event = _event()
     NullDiagnosticEventSink().emit(event)
@@ -171,6 +198,43 @@ def test_python_logging_sink_serializes_deterministic_compact_json() -> None:
         "0x",
     ):
         assert forbidden not in first.lower()
+
+
+def test_logging_sink_serializes_partial_reasons_as_json_strings() -> None:
+    stream = StringIO()
+    logger = logging.Logger(
+        "test.redforge.partial-diagnostics",
+        level=logging.DEBUG,
+    )
+    logger.propagate = False
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+    sink = PythonLoggingDiagnosticSink(logger)
+    event = DiagnosticEvent(
+        event_type=DiagnosticEventType.CAPABILITY_PARTIAL,
+        severity=DiagnosticSeverity.WARNING,
+        message="Capability completed partially",
+        fields=DiagnosticFields(
+            capability_id="technology_detection",
+            runtime_status="PARTIAL",
+            partial_reasons=(
+                TechnologyDetectionPartialReason.OUTPUT_TRUNCATED,
+                TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED,
+            ),
+        ),
+    )
+
+    sink.emit(event)
+
+    assert json.loads(stream.getvalue())["fields"] == {
+        "capability_id": "technology_detection",
+        "runtime_status": "PARTIAL",
+        "partial_reasons": [
+            "malformed_records_skipped",
+            "output_truncated",
+        ],
+    }
 
 
 def test_logging_sink_maps_severity_and_respects_dedicated_logger_level() -> None:

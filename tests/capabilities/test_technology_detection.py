@@ -104,7 +104,7 @@ def test_partial_with_evidence_publishes_and_continues() -> None:
     assert result.publications[0].value == (_technology(),)
     assert result.errors == []
     assert result.metadata["partial_reasons"] == (
-        "malformed_records_skipped",
+        TechnologyDetectionPartialReason.MALFORMED_RECORDS_SKIPPED,
     )
 
 

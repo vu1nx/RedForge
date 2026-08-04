@@ -132,9 +132,16 @@ Usable partial provider results also carry an immutable, typed, deterministic
 tuple of safe reason codes: `execution_timeout`,
 `malformed_records_skipped`, `unassociated_records_skipped`, and
 `output_truncated`. Only applicable codes are present. The capability copies
-their string values into result metadata so execution history can explain a
+their typed values into result metadata so execution history can explain a
 PARTIAL status without retaining endpoints, technology names, process output,
 temporary paths, or exception text.
+
+The capability retains these as typed SDK values in its allowlisted
+`partial_reasons` metadata entry. Runtime terminal-event emission recognizes
+only that exact typed contract and exposes it through the closed diagnostic
+field model. Arbitrary strings or other result metadata are ignored. The
+logging adapter renders approved values as a deterministic JSON string array;
+human summaries and the final scan JSON schema remain unchanged.
 
 The aggregate status retained for the first Kali execution does not identify
 which safe reason occurred, so that historical PARTIAL result cannot be

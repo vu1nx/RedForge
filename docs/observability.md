@@ -91,6 +91,11 @@ arrays:
 {"schema_version":1,"event_type":"capability_partial","severity":"WARNING","message":"Capability completed partially","fields":{"capability_id":"technology_detection","runtime_status":"PARTIAL","partial_reasons":["malformed_records_skipped"]}}
 ```
 
+The controlled Kali reconnaissance validation produced this exact safe reason
+shape for technology detection. It made the legitimate PARTIAL outcome
+explainable without exposing the authorized target or any discovered evidence.
+See [Kali Reconnaissance Smoke Validation](kali-smoke-validation.md).
+
 ## Configuration and CLI
 
 TOML schema version 1 supports:

@@ -1,9 +1,11 @@
 # Kali Linux Platform Policy
 
 Kali Linux is RedForge's primary supported execution platform and the official
-target for external-tool integration and future controlled real-tool smoke
-validation. An initial controlled run exposed the HTTPX executable-name
-collision described below; successful Kali revalidation remains pending.
+target for external-tool integration. The five-capability reconnaissance chain
+has completed controlled real-tool validation after correcting the HTTPX
+executable-name collision, Katana startup environment, and WhatWeb numeric
+version compatibility. The sanitized result is recorded in
+[Kali Reconnaissance Smoke Validation](kali-smoke-validation.md).
 
 Other Linux distributions may be compatible, but remain best effort until
 explicitly validated. Windows remains supported for development, unit tests,
@@ -34,3 +36,9 @@ ProjectDiscovery version-output identity check rejects name collisions. No
 symlink, executable rename, wrapper, or `PATH` modification is required.
 Detected versions remain compatibility-unverified until explicit supported
 version constraints are defined.
+
+The validated run resolved canonical `httpx` through `httpx-toolkit`, executed
+all four external tools through `ToolRunner`, and completed with an honest
+technology-detection `PARTIAL` carrying only
+`malformed_records_skipped`. This validates the reconnaissance infrastructure,
+not every future Kali or tool version.

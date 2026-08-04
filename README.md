@@ -494,6 +494,14 @@ single JSON outcome on stdout. Diagnostics contain no evidence, process
 output, environment values, executable paths, credentials, or exception text.
 See [Structured Observability](docs/observability.md).
 
+The production reconnaissance chain has completed one controlled authorized
+real-tool validation on Kali through Subfinder, HTTPX, Katana, and WhatWeb.
+All five capabilities executed in planner order. The final result was an
+honest `PARTIAL` caused by the safe
+`malformed_records_skipped` technology-detection reason; parser strictness was
+not weakened. See the sanitized
+[Kali Reconnaissance Smoke Validation](docs/kali-smoke-validation.md).
+
 Human output is the default. Automation can request one versioned, sanitized
 JSON summary on stdout:
 
@@ -526,8 +534,9 @@ On Kali, ProjectDiscovery HTTPX may be `/usr/bin/httpx-toolkit`, while
 `/usr/bin/httpx` may refer to the unrelated Python CLI. RedForge retains canonical tool ID
 `httpx`, resolves ordered candidates from immutable infrastructure metadata,
 and validates ProjectDiscovery identity with a bounded target-free version
-probe. It requires no symlink or `PATH` modification; detected versions remain
-compatibility-unverified, and successful Kali revalidation remains pending.
+probe. It requires no symlink or `PATH` modification. The candidate-resolution
+path has now completed controlled Kali validation; general version ranges
+remain compatibility-unverified.
 
 ## License
 

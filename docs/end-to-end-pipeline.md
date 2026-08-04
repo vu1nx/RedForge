@@ -2,8 +2,10 @@
 
 Environment diagnosis precedes but is not part of this pipeline.
 `redforge doctor` creates no target, plan, Context, capability, publication, or
-history entry. Kali is the primary future controlled real-tool validation
-platform; no such validation is claimed yet.
+history entry. Kali is the primary external-tool platform. The reconnaissance
+closure through `technology_detection` has completed controlled validation;
+the downstream intelligence closure remains covered by offline deterministic
+tests. See [Kali Reconnaissance Smoke Validation](kali-smoke-validation.md).
 
 RedForge's current library runtime can plan, construct, and execute every
 implemented capability from one target context to immutable risk read models:
@@ -174,4 +176,5 @@ Its [toolchain manifest](toolchain.md) describes the same five-capability
 reconnaissance closure and four external tools without constructing the
 pipeline, creating `Context`, resolving hosts, executing tools, or publishing
 state. The first controlled authorized real-tool smoke run remains a separate
-operation.
+operation from dry run and has now completed successfully at the infrastructure
+level. Its final status was an explainable `PARTIAL`, not a clean `SUCCESS`.

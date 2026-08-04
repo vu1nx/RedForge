@@ -45,8 +45,9 @@ On Kali, ProjectDiscovery HTTPX may be installed as `/usr/bin/httpx-toolkit`,
 while `/usr/bin/httpx` may name the unrelated Python client. RedForge keeps canonical
 `ToolId("httpx")`, considers candidates in metadata order, validates identity,
 and reports only the canonical ID and an optional sanitized version. It never
-renders the resolved path. Successful controlled Kali revalidation remains
-pending.
+renders the resolved path. Controlled Kali validation subsequently confirmed
+the same `httpx-toolkit` selection during the complete reconnaissance chain;
+see [Kali Reconnaissance Smoke Validation](kali-smoke-validation.md).
 
 Doctor performs no user configuration discovery. It never creates
 `ScanConfig`, Context, an execution plan, a pipeline, or a scan result. It does

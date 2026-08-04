@@ -112,8 +112,8 @@ download commands or automatic installation.
 
 Katana v1.6.1's documented JSONL, stdin, scope, redirect, timeout, retry,
 concurrency, rate, and output-omission flags match the current adapter
-contract. Its remaining Kali revalidation is target-facing operational work
-and is not performed by repository validation.
+contract. Controlled Kali validation confirmed startup and crawling with the
+corrected minimal home environment.
 
 Executable candidates are ordered immutable infrastructure metadata. The
 canonical `httpx` definition prefers Kali's `httpx-toolkit`, then considers
@@ -123,5 +123,8 @@ ready. Candidate resolution exposes neither the absolute executable path nor
 raw version output, and it is repeated for later runs so `PATH` changes are not
 globally cached.
 
-The initial controlled Kali smoke run exposed the HTTPX executable-name
-collision. Successful real-tool revalidation remains a separate pending task.
+Controlled Kali validation confirmed the complete five-capability closure,
+including `httpx-toolkit` identity resolution, Katana startup, and WhatWeb
+execution. Technology detection remained honestly `PARTIAL` with the safe
+`malformed_records_skipped` reason. See
+[Kali Reconnaissance Smoke Validation](kali-smoke-validation.md).

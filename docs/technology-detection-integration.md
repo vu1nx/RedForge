@@ -143,10 +143,12 @@ field model. Arbitrary strings or other result metadata are ignored. The
 logging adapter renders approved values as a deterministic JSON string array;
 human summaries and the final scan JSON schema remain unchanged.
 
-The aggregate status retained for the first Kali execution does not identify
-which safe reason occurred, so that historical PARTIAL result cannot be
-attributed conclusively. A controlled real Kali revalidation using the new
-reason metadata remains pending.
+Controlled Kali revalidation with the typed diagnostic contract identified
+`malformed_records_skipped`. Usable technology evidence was published and the
+runtime remained honestly `PARTIAL`; parser strictness was not weakened to
+force `SUCCESS`. No raw malformed record crossed the adapter or observability
+boundary. See
+[Kali Reconnaissance Smoke Validation](kali-smoke-validation.md).
 
 Provider `SUCCESS` maps to capability `SUCCESS`. `PARTIAL` with evidence maps
 to capability `PARTIAL` and publishes; `PARTIAL` without evidence and provider

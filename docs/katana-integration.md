@@ -90,7 +90,9 @@ allowlisted child environment. Previously the version-only readiness path
 could not expose this defect: RedForge's readiness check only resolves the
 executable, and Katana's separately invoked version path exits before that
 initialization. A crawl then failed at startup after RedForge removed `HOME`.
-Real Kali revalidation of the corrected environment remains pending.
+Controlled Kali revalidation subsequently confirmed startup and crawling with
+the corrected minimal environment retaining `HOME` and `USERPROFILE`; see
+[Kali Reconnaissance Smoke Validation](kali-smoke-validation.md).
 
 ## JSONL, URL normalization, and scope
 

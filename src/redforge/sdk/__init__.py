@@ -27,6 +27,13 @@ from redforge.sdk.capability_id import (
     CapabilityId,
 )
 from redforge.sdk.context import Context
+from redforge.sdk.http_data import (
+    HttpDataResponse,
+    HttpDataTransport,
+    HttpDataTransportError,
+    HttpDataTransportFailure,
+    HttpGetRequest,
+)
 from redforge.sdk.http_probe import (
     HttpProbeProvider,
     HttpProbeProviderResult,
@@ -105,6 +112,11 @@ __all__ = [
     "FindingStatus",
     "EpssProvider",
     "HttpProbeEndpoint",
+    "HttpDataResponse",
+    "HttpDataTransport",
+    "HttpDataTransportError",
+    "HttpDataTransportFailure",
+    "HttpGetRequest",
     "HttpProbeProvider",
     "HttpProbeProviderResult",
     "HttpProbeProviderStatus",

@@ -96,6 +96,13 @@ static configuration or binding compatibility without a target. No credential
 value, environment variable, raw exception, or provider representation enters
 the result. Live remote health probes are not part of the default contract.
 
+Full-assessment production composition supplies the NVD CVSS, FIRST EPSS, and
+CISA KEV enrichment roles. Their readiness is structural only: no DNS or HTTP
+request is made. A custom factory composition that omits one of these roles
+still receives `provider_absent` when an explicit enrichment plan requires it.
+Reconnaissance and existing full-risk plans do not acquire these checks merely
+because the providers are available.
+
 Statuses are independent from runtime status:
 
 ```text

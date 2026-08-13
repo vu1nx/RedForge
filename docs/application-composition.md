@@ -73,11 +73,11 @@ Composition still succeeds; a full scan's accepted preflight reports the
 missing provider configuration as not ready before Context creation or
 capability construction.
 
-The new canonical-finding path is registered in `full_assessment` but is not
-silently added to the existing risk goal. Explicit requests for
-`ENRICHED_VULNERABILITIES` require separately injected CVSS, EPSS, and KEV
-provider ports. Until production HTTP sources are implemented, preflight
-reports each absent role without constructing the lazy enrichment capability.
+The canonical-finding path is registered in `full_assessment` but is not
+silently added to the existing risk goal. Production composition supplies
+fixed-authority CVSS, EPSS, and KEV providers. Explicit requests for
+`ENRICHED_VULNERABILITIES` therefore pass static provider-presence readiness;
+this performs no HTTP request and does not claim live provider reachability.
 
 ## Construction and isolation
 
@@ -131,8 +131,10 @@ construct or receive concrete adapters.
 
 ## Current boundary
 
-This framework does not load TOML, credentials, environment values, plugins,
-or provider modules dynamically. The configuration layer returns only the
+This framework does not load TOML, environment values, plugins, or provider
+modules dynamically. Optional NVD credentials are accepted only through
+explicit infrastructure construction and never discovered by composition.
+The configuration layer returns only the
 typed profile and application inputs; it does not construct this composition
 root. Composition provides no persistence, reports, retry, resume, scheduling,
 concurrency, caching, or long-lived container lifetime. Explicit provider

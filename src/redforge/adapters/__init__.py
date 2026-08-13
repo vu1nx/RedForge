@@ -11,6 +11,7 @@ from redforge.adapters.errors import (
     AdapterUnavailableError,
 )
 from redforge.adapters.host_resolver import HostResolver, StandardHostResolver
+from redforge.adapters.http_data import LocalHttpsDataTransport
 from redforge.adapters.httpx import (
     HTTPX_TOOL,
     HTTPX_TOOL_ID,
@@ -78,6 +79,13 @@ from redforge.adapters.vulnerability_enrichment import (
     VulnerabilityIntelligenceJsonSource,
     VulnerabilityIntelligenceSourceUnavailable,
 )
+from redforge.adapters.vulnerability_intelligence_http import (
+    CisaKevHttpSource,
+    FirstEpssHttpSource,
+    NvdCvssHttpSource,
+    VulnerabilityIntelligenceHttpConfig,
+    create_production_vulnerability_intelligence_providers,
+)
 
 __all__ = [
     "HTTPX_TOOL",
@@ -91,6 +99,7 @@ __all__ = [
     "FirstEpssProvider",
     "HostResolver",
     "HttpProbeAdapterResult",
+    "LocalHttpsDataTransport",
     "HttpProbeProvider",
     "HttpProbeProviderResult",
     "HttpProbeProviderStatus",
@@ -108,6 +117,7 @@ __all__ = [
     "LocalStaticHostResolver",
     "NvdAdapter",
     "NvdCvssProvider",
+    "NvdCvssHttpSource",
     "NUCLEI_TOOL",
     "NUCLEI_TOOL_ID",
     "NucleiConfig",
@@ -131,6 +141,10 @@ __all__ = [
     "WhatWebConfig",
     "WhatWebTechnologyDetectionProvider",
     "VulnerabilityProvider",
+    "CisaKevHttpSource",
+    "FirstEpssHttpSource",
+    "VulnerabilityIntelligenceHttpConfig",
+    "create_production_vulnerability_intelligence_providers",
     "VulnerabilityEnrichmentAdapterConfig",
     "VulnerabilityEnrichmentAdapterError",
     "VulnerabilityIntelligenceJsonSource",

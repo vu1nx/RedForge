@@ -14,6 +14,7 @@ from redforge.adapters import (
     ToolRunnerVersionProbe,
     VulnerabilityProvider,
     create_default_tool_registry,
+    create_production_vulnerability_intelligence_providers,
 )
 from redforge.application import (
     ReadinessRegistry,
@@ -338,6 +339,22 @@ class ApplicationComposition:
                 tool_runner=runner,
                 exact_target=target,
             )
+        cvss_provider = providers.cvss_provider
+        epss_provider = providers.epss_provider
+        kev_provider = providers.kev_provider
+        if self.profile is CompositionProfile.FULL_ASSESSMENT and any(
+            provider is None
+            for provider in (cvss_provider, epss_provider, kev_provider)
+        ):
+            production_cvss, production_epss, production_kev = (
+                create_production_vulnerability_intelligence_providers()
+            )
+            if cvss_provider is None:
+                cvss_provider = production_cvss
+            if epss_provider is None:
+                epss_provider = production_epss
+            if kev_provider is None:
+                kev_provider = production_kev
         return CapabilityDependencies(
             subdomain_provider=providers.subdomain_provider,
             host_resolver=providers.host_resolver,
@@ -346,9 +363,9 @@ class ApplicationComposition:
             technology_detector=providers.technology_detector,
             vulnerability_provider=providers.vulnerability_provider,
             vulnerability_detector=providers.vulnerability_detector,
-            cvss_provider=providers.cvss_provider,
-            epss_provider=providers.epss_provider,
-            kev_provider=providers.kev_provider,
+            cvss_provider=cvss_provider,
+            epss_provider=epss_provider,
+            kev_provider=kev_provider,
             tool_runner=runner,
         )
 

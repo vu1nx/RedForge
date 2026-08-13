@@ -410,7 +410,7 @@ Nuclei never becomes a planner step.
 
 This is an offline-validated architecture foundation. It does not yet include
 real Nuclei execution validation, exploit intelligence, attack-graph
-integration, real enrichment data sources, risk scoring, or remediation. See
+integration, enrichment-driven risk scoring, or remediation. See
 [Nuclei Vulnerability Detection Architecture](docs/nuclei-vulnerability-detection.md).
 
 Finding identity, evidence, provenance, categorical confidence and quality,
@@ -424,11 +424,13 @@ Aggregation](docs/finding-correlation.md).
 Canonical CVE findings can also be transformed into immutable,
 provider-neutral CVSS 3.0/3.1, FIRST EPSS, and CISA KEV intelligence. The
 `vulnerability_enrichment` capability publishes `ENRICHED_VULNERABILITIES`
-through injected providers; the default composition reports those real
-provider sources unavailable rather than fabricating data. The enrichment
-service isolates provider failures and never changes finding or canonical
-identity. See [Vulnerability Enrichment
-Intelligence](docs/vulnerability-enrichment.md).
+through injected providers. Full-assessment production composition supplies
+fixed-authority NVD CVSS, FIRST EPSS, and CISA KEV implementations with bounded
+HTTPS transport and static, target-free readiness. The enrichment service
+isolates provider failures and never changes finding or canonical identity.
+See [Vulnerability Enrichment Intelligence](docs/vulnerability-enrichment.md)
+and [Production Vulnerability Intelligence
+Providers](docs/vulnerability-intelligence-providers.md).
 
 ## Multi-Output State
 
@@ -476,9 +478,10 @@ configuration, NVD attribution and limits, matching behavior, and current
 limitations.
 
 Canonical-finding enrichment is a separate downstream architecture. It uses
-exact CVE identity and injected bounded data sources; it does not change this
-CPE-based capability or existing NVD contracts. See [Vulnerability Enrichment
-Intelligence](docs/vulnerability-enrichment.md).
+exact CVE identity and fixed-authority bounded providers; it does not change
+this CPE-based capability or existing NVD contracts. Production-provider tests
+use only fake HTTP transport and make no live intelligence request. See
+[Vulnerability Enrichment Intelligence](docs/vulnerability-enrichment.md).
 
 ## Security Knowledge Graph
 

@@ -319,7 +319,7 @@ def test_enrichment_providers_are_explicit_and_factories_remain_lazy() -> None:
     )
 
 
-def test_absent_production_enrichment_providers_fail_preflight_safely() -> None:
+def test_production_enrichment_providers_are_structurally_ready_without_network() -> None:
     dependencies = _recon_dependencies()
     composition = ApplicationComposition(
         CompositionProfile.FULL_ASSESSMENT,
@@ -339,14 +339,12 @@ def test_absent_production_enrichment_providers_fail_preflight_safely() -> None:
 
     inspection = composition.create_inspector().inspect(config)
 
-    failures = tuple(
-        check
-        for check in inspection.preflight.checks
-        if check.status is not ReadinessStatus.READY
+    assert inspection.preflight.ready
+    assert tuple(item.value for item in inspection.manifest.provider_ids[-3:]) == (
+        "cvss_provider",
+        "epss_provider",
+        "kev_provider",
     )
-    assert not inspection.preflight.ready
-    assert len(failures) == 3
-    assert all(check.reason is ReadinessReason.PROVIDER_ABSENT for check in failures)
 
 
 def test_injected_tool_runner_and_probe_remain_lazy_until_preflight() -> None:

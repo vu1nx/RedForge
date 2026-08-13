@@ -142,6 +142,14 @@ and chooses the appropriate capability status. This preserves existing
 `PARTIAL`, `FAILURE`, `ERROR`, publication, and execution-history semantics.
 See [External Tool Execution](tool-execution.md).
 
+External vulnerability-intelligence HTTP outcomes are likewise adapter-owned.
+Timeout, rate limit, and transient transport failure become provider
+`UNAVAILABLE`; malformed, oversized, or incompatible responses become
+provider errors isolated by `VulnerabilityEnrichmentService`. These outcomes
+feed the existing enrichment truth table without changing pipeline precedence,
+publication, history, or acceptance. See [Production Vulnerability
+Intelligence Providers](vulnerability-intelligence-providers.md).
+
 For passive subdomain discovery, complete and partial usable provider results
 publish one immutable `SUBDOMAINS` value atomically. A successful empty
 enumeration publishes `()`. Provider failure, unavailable execution, and

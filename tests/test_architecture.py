@@ -1767,3 +1767,82 @@ def test_enrichment_runtime_integration_preserves_layer_boundaries() -> None:
         source = path.read_text(encoding="utf-8")
         assert "EnrichmentCompleteness" not in source, path
         assert "VulnerabilityEnrichmentService" not in source, path
+
+
+def test_http_data_contract_is_provider_neutral_and_io_free() -> None:
+    path = _SOURCE_ROOT / "sdk" / "http_data.py"
+    imports = _imports(path)
+    forbidden = (
+        "redforge.adapters",
+        "redforge.application",
+        "redforge.domain",
+        "redforge.planning",
+        "redforge.runtime",
+        "socket",
+        "ssl",
+        "urllib",
+        "requests",
+        "httpx",
+        "os",
+    )
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in forbidden
+    )
+
+
+def test_external_intelligence_transport_is_confined_and_fail_closed() -> None:
+    transport = _SOURCE_ROOT / "adapters" / "http_data.py"
+    source = transport.read_text(encoding="utf-8")
+    assert "ProxyHandler({})" in source
+    assert "ssl.create_default_context()" in source
+    assert "_RejectRedirects()" in source
+    for forbidden in (
+        "verify=False",
+        "CERT_NONE",
+        "os.environ",
+        "getenv",
+        "ToolRunner",
+        "subprocess",
+        "shell=True",
+        "requests.get",
+        "sleep(",
+    ):
+        assert forbidden not in source
+
+    provider_source = _SOURCE_ROOT / "adapters" / "vulnerability_intelligence_http.py"
+    provider_imports = _imports(provider_source)
+    assert "urllib.request" not in provider_imports
+    assert "socket" not in provider_imports
+    assert "ssl" not in provider_imports
+
+
+def test_production_enrichment_sources_have_fixed_authorities_and_no_domain_leakage() -> None:
+    adapter = _SOURCE_ROOT / "adapters" / "vulnerability_intelligence_http.py"
+    source = adapter.read_text(encoding="utf-8")
+    imports = _imports(adapter)
+    assert "redforge.sdk.tool" not in imports
+    assert "redforge.adapters.nvd" not in imports
+    for authority in (
+        "services.nvd.nist.gov",
+        "api.first.org",
+        "www.cisa.gov",
+    ):
+        assert authority in source
+    protected = (
+        *(_SOURCE_ROOT / "runtime").rglob("*.py"),
+        *(_SOURCE_ROOT / "planning").rglob("*.py"),
+        _SOURCE_ROOT / "domain" / "finding_intelligence.py",
+        _SOURCE_ROOT / "domain" / "finding_correlation.py",
+        _SOURCE_ROOT / "domain" / "risk_intelligence.py",
+        _SOURCE_ROOT / "capabilities" / "risk_intelligence.py",
+    )
+    for path in protected:
+        text = path.read_text(encoding="utf-8")
+        for authority in (
+            "services.nvd.nist.gov",
+            "api.first.org",
+            "www.cisa.gov",
+        ):
+            assert authority not in text, path

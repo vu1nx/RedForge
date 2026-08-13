@@ -80,6 +80,48 @@ def test_finding_intelligence_domain_has_no_provider_or_execution_imports() -> N
     assert "nuclei" not in path.read_text(encoding="utf-8").casefold()
 
 
+def test_finding_correlation_remains_a_pure_provider_neutral_domain_service() -> None:
+    path = _SOURCE_ROOT / "domain" / "finding_correlation.py"
+    forbidden_imports = (
+        "redforge.adapters",
+        "redforge.capabilities",
+        "redforge.planning",
+        "redforge.runtime",
+        "redforge.sdk",
+        "subprocess",
+        "socket",
+        "urllib",
+        "requests",
+    )
+    source = path.read_text(encoding="utf-8").casefold()
+
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in _imports(path)
+        for prefix in forbidden_imports
+    )
+    assert "nuclei" not in source
+    assert not any(term in source for term in ("cvss", "epss", "kev", "risk score"))
+
+
+def test_correlation_has_no_runtime_planner_capability_or_adapter_integration() -> None:
+    forbidden_names = (
+        "FindingCorrelator",
+        "CanonicalFinding",
+        "finding_correlation",
+    )
+    paths = (
+        *(_SOURCE_ROOT / "runtime").rglob("*.py"),
+        *(_SOURCE_ROOT / "planning").rglob("*.py"),
+        *(_SOURCE_ROOT / "capabilities").rglob("*.py"),
+        _SOURCE_ROOT / "adapters" / "nuclei" / "provider.py",
+    )
+
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        assert not any(name in source for name in forbidden_names), path
+
+
 def test_vulnerability_capability_does_not_reference_nvd_payload_keys() -> None:
     source = (_SOURCE_ROOT / "capabilities" / "vulnerability_intelligence.py").read_text(
         encoding="utf-8"

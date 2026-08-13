@@ -417,7 +417,9 @@ Finding identity, evidence, provenance, categorical confidence and quality,
 generic references, and deterministic fingerprinting live in the independent
 [Finding Intelligence Domain](docs/finding-intelligence.md). Scanner-specific
 IDs never participate in finding identity. Correlation and canonical
-aggregation remain deferred.
+aggregation are available as a pure offline domain service and are not yet
+published by the runtime. See [Canonical Finding Correlation and
+Aggregation](docs/finding-correlation.md).
 
 ## Multi-Output State
 

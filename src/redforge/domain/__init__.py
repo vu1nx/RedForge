@@ -8,6 +8,20 @@ from redforge.domain.asset_association import AssetAssociation
 from redforge.domain.asset_intelligence import AssetIntelligence
 from redforge.domain.endpoint import Endpoint
 from redforge.domain.evidence import Evidence
+from redforge.domain.finding_correlation import (
+    CanonicalAnchorKind,
+    CanonicalFinding,
+    CanonicalFindingAnchor,
+    CanonicalFindingCollection,
+    CanonicalFindingId,
+    CorrelationMatchStrength,
+    FindingConflict,
+    FindingConflictKind,
+    FindingCorrelationDecision,
+    FindingCorrelationKey,
+    FindingCorrelationReason,
+    FindingCorrelator,
+)
 from redforge.domain.finding_intelligence import (
     AffectedAsset,
     AffectedEndpoint,
@@ -79,6 +93,12 @@ __all__ = [
     "AffectedEndpoint",
     "AffectedTechnology",
     "AssetIdentityKind",
+    "CanonicalAnchorKind",
+    "CanonicalFinding",
+    "CanonicalFindingAnchor",
+    "CanonicalFindingCollection",
+    "CanonicalFindingId",
+    "CorrelationMatchStrength",
     "DetectionMethod",
     "Evidence",
     "EvidenceConfidence",
@@ -90,7 +110,13 @@ __all__ = [
     "ExactNetworkTarget",
     "Finding",
     "FindingClassification",
+    "FindingConflict",
+    "FindingConflictKind",
     "FindingContext",
+    "FindingCorrelationDecision",
+    "FindingCorrelationKey",
+    "FindingCorrelationReason",
+    "FindingCorrelator",
     "FindingEvidence",
     "FindingFingerprint",
     "FindingIdentity",

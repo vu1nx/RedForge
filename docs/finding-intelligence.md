@@ -5,9 +5,11 @@ representation of detected security conditions. Nuclei is one adapter that
 maps into this domain; future OpenVAS, Nessus, Qualys, Burp, custom, manual,
 imported, or AI-assisted producers use the same model.
 
-This layer does not implement CVSS, EPSS, KEV, exploit intelligence, risk
-scoring, knowledge-graph enrichment, remediation, persistence, cross-provider
-correlation, canonical aggregation, or cross-scan merging.
+This base representation does not implement CVSS, EPSS, KEV, exploit
+intelligence, risk scoring, knowledge-graph enrichment, remediation, or
+persistence. The separate [Canonical Finding Correlation and
+Aggregation](finding-correlation.md) domain service compares and aggregates
+these records without changing their identity or runtime publication contract.
 
 ## Identity and fingerprint
 
@@ -41,8 +43,8 @@ vendor advisory, research article, and internal identifiers.
 `FindingRecord` binds identity, its verified fingerprint, classification,
 context, immutable evidence, metadata, and status. `FindingRecordCollection`
 sorts by fingerprint, removes exact duplicates, and rejects conflicting records
-that claim the same fingerprint. Cross-provider evidence merging is deferred
-to a future milestone.
+that claim the same fingerprint. Cross-provider aggregation is performed only
+by the separate correlation service; the base collection remains unchanged.
 
 `serialize_finding_record()` explicitly serializes only sanitized domain
 fields with deterministic ordering. It does not use generic object recursion,
@@ -54,3 +56,7 @@ The Nuclei adapter validates JSONL and translates supported records into this
 domain. Nuclei template IDs are retained only as generic source provenance.
 Template IDs, matcher names, scanner output, and scanner-specific hashes do not
 define finding identity, and no Nuclei type exists in the domain package.
+
+Correlation never treats a Nuclei template ID as a canonical vulnerability
+identifier. Only recognized provider-neutral concrete references and
+compatible affected subjects can widen correlation beyond exact fingerprints.

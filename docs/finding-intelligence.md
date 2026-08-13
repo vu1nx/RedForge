@@ -11,6 +11,10 @@ persistence. The separate [Canonical Finding Correlation and
 Aggregation](finding-correlation.md) domain service compares and aggregates
 these records without changing their identity or runtime publication contract.
 
+The downstream [Vulnerability Enrichment](vulnerability-enrichment.md) layer
+models CVSS 3.0/3.1, EPSS, and KEV for an exact canonical CVE. Those values
+remain excluded from finding identity and fingerprints.
+
 ## Identity and fingerprint
 
 `FindingIdentity` contains only a normalized classification identifier, the

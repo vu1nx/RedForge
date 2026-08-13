@@ -409,8 +409,8 @@ contract, bounded invocation construction, and strict JSONL normalization;
 Nuclei never becomes a planner step.
 
 This is an offline-validated architecture foundation. It does not yet include
-real Nuclei execution validation, CVSS/EPSS/KEV enrichment, exploit
-intelligence, attack-graph integration, risk scoring, or remediation. See
+real Nuclei execution validation, exploit intelligence, attack-graph
+integration, enrichment runtime publication, risk scoring, or remediation. See
 [Nuclei Vulnerability Detection Architecture](docs/nuclei-vulnerability-detection.md).
 
 Finding identity, evidence, provenance, categorical confidence and quality,
@@ -420,6 +420,12 @@ IDs never participate in finding identity. Correlation and canonical
 aggregation are available as a pure offline domain service and are not yet
 published by the runtime. See [Canonical Finding Correlation and
 Aggregation](docs/finding-correlation.md).
+
+Canonical CVE findings can also be transformed offline into immutable,
+provider-neutral CVSS 3.0/3.1, FIRST EPSS, and CISA KEV intelligence. The
+enrichment service isolates provider failures and never changes finding or
+canonical identity. See [Vulnerability Enrichment
+Intelligence](docs/vulnerability-enrichment.md).
 
 ## Multi-Output State
 
@@ -465,6 +471,11 @@ CVE API 2.0 data using conservative exact matching. See
 [Vulnerability Intelligence](docs/vulnerability-intelligence.md) for API-key
 configuration, NVD attribution and limits, matching behavior, and current
 limitations.
+
+Canonical-finding enrichment is a separate downstream architecture. It uses
+exact CVE identity and injected bounded data sources; it does not change this
+CPE-based capability or existing NVD contracts. See [Vulnerability Enrichment
+Intelligence](docs/vulnerability-enrichment.md).
 
 ## Security Knowledge Graph
 

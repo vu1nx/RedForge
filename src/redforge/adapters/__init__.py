@@ -69,6 +69,15 @@ from redforge.adapters.technology_detection import (
     WhatWebTechnologyDetectionProvider,
 )
 from redforge.adapters.tool_runner import LocalSubprocessToolRunner
+from redforge.adapters.vulnerability_enrichment import (
+    CisaKevProvider,
+    FirstEpssProvider,
+    NvdCvssProvider,
+    VulnerabilityEnrichmentAdapterConfig,
+    VulnerabilityEnrichmentAdapterError,
+    VulnerabilityIntelligenceJsonSource,
+    VulnerabilityIntelligenceSourceUnavailable,
+)
 
 __all__ = [
     "HTTPX_TOOL",
@@ -78,6 +87,8 @@ __all__ = [
     "AdapterResponseError",
     "AdapterUnavailableError",
     "create_default_tool_registry",
+    "CisaKevProvider",
+    "FirstEpssProvider",
     "HostResolver",
     "HttpProbeAdapterResult",
     "HttpProbeProvider",
@@ -96,6 +107,7 @@ __all__ = [
     "LocalSeedSubdomainProvider",
     "LocalStaticHostResolver",
     "NvdAdapter",
+    "NvdCvssProvider",
     "NUCLEI_TOOL",
     "NUCLEI_TOOL_ID",
     "NucleiConfig",
@@ -119,6 +131,10 @@ __all__ = [
     "WhatWebConfig",
     "WhatWebTechnologyDetectionProvider",
     "VulnerabilityProvider",
+    "VulnerabilityEnrichmentAdapterConfig",
+    "VulnerabilityEnrichmentAdapterError",
+    "VulnerabilityIntelligenceJsonSource",
+    "VulnerabilityIntelligenceSourceUnavailable",
     "WebCrawlAdapterResult",
     "WebCrawler",
 ]

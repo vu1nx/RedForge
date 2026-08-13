@@ -1658,3 +1658,95 @@ def test_doctor_json_uses_explicit_serialization_only() -> None:
 
     for forbidden in ("default=str", "__dict__", "asdict", "Context"):
         assert forbidden not in source
+
+
+def test_vulnerability_enrichment_domain_is_provider_neutral_and_io_free() -> None:
+    path = _SOURCE_ROOT / "domain" / "vulnerability_enrichment.py"
+    imports = _imports(path)
+    forbidden = (
+        "redforge.adapters",
+        "redforge.runtime",
+        "redforge.planning",
+        "subprocess",
+        "socket",
+        "urllib",
+        "requests",
+        "http",
+        "pathlib",
+        "os",
+    )
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in imports
+        for prefix in forbidden
+    )
+    source = path.read_text(encoding="utf-8").lower()
+    for forbidden_text in (
+        "raw_json",
+        "raw_response",
+        "http_header",
+        "credential",
+        "token",
+        "provider_url",
+        "filesystem",
+        "traceback",
+        "exception_text",
+        "toolrunner",
+    ):
+        assert forbidden_text not in source
+
+
+def test_enrichment_never_participates_in_finding_or_canonical_identity() -> None:
+    from dataclasses import fields
+
+    from redforge.domain import CanonicalFindingAnchor, FindingIdentity
+
+    forbidden = {
+        "cvss",
+        "cvss_score",
+        "epss",
+        "epss_probability",
+        "kev",
+        "known_exploited",
+        "enrichment",
+    }
+    assert {item.name for item in fields(FindingIdentity)}.isdisjoint(forbidden)
+    assert {item.name for item in fields(CanonicalFindingAnchor)}.isdisjoint(forbidden)
+    finding_source = (
+        _SOURCE_ROOT / "domain" / "finding_intelligence.py"
+    ).read_text(encoding="utf-8").lower()
+    correlation_source = (
+        _SOURCE_ROOT / "domain" / "finding_correlation.py"
+    ).read_text(encoding="utf-8").lower()
+    for forbidden_text in ("epss", "known_exploited", "vulnerability_enrichment"):
+        assert forbidden_text not in finding_source
+        assert forbidden_text not in correlation_source
+
+
+def test_detection_correlation_risk_and_tool_runner_do_not_import_enrichment() -> None:
+    inspected = (
+        _SOURCE_ROOT / "adapters" / "nuclei",
+        _SOURCE_ROOT / "domain" / "finding_correlation.py",
+        _SOURCE_ROOT / "domain" / "risk_intelligence.py",
+        _SOURCE_ROOT / "capabilities" / "risk_intelligence.py",
+        _SOURCE_ROOT / "adapters" / "tool_runner.py",
+    )
+    for path in inspected:
+        paths = path.rglob("*.py") if path.is_dir() else (path,)
+        for source_path in paths:
+            assert not any(
+                name == "redforge.domain.vulnerability_enrichment"
+                or name == "redforge.adapters.vulnerability_enrichment"
+                or name == "redforge.application.vulnerability_enrichment"
+                for name in _imports(source_path)
+            ), source_path
+
+
+def test_enrichment_is_not_integrated_into_runtime_planning_or_capabilities() -> None:
+    for package in ("runtime", "planning", "capabilities", "composition"):
+        for path in (_SOURCE_ROOT / package).rglob("*.py"):
+            source = path.read_text(encoding="utf-8").lower()
+            assert "enrichedcanonicalfinding" not in source, path
+            assert "vulnerabilityenrichmentservice" not in source, path
+            assert "epssprovider" not in source, path
+            assert "kevprovider" not in source, path

@@ -81,6 +81,7 @@ from redforge.sdk.vulnerability import (
     VulnerabilityDetectionResult,
     VulnerabilityDetectionStatus,
 )
+from redforge.sdk.vulnerability_enrichment import CvssProvider, EpssProvider, KevProvider
 from redforge.sdk.web_crawl import (
     WebCrawlProvider,
     WebCrawlProviderResult,
@@ -93,11 +94,13 @@ __all__ = [
     "CapabilityDescriptor",
     "CapabilityId",
     "Context",
+    "CvssProvider",
     "Finding",
     "FindingCollection",
     "FindingId",
     "FindingSeverity",
     "FindingStatus",
+    "EpssProvider",
     "HttpProbeEndpoint",
     "HttpProbeProvider",
     "HttpProbeProviderResult",
@@ -143,6 +146,7 @@ __all__ = [
     "HOST_RESOLUTION",
     "HTTP_PROBE",
     "KNOWLEDGE_GRAPH",
+    "KevProvider",
     "RISK_INTELLIGENCE",
     "SUBDOMAIN_DISCOVERY",
     "TECHNOLOGY_DETECTION",

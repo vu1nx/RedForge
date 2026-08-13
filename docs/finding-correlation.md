@@ -103,7 +103,10 @@ Correlation is not integrated into Planner, PipelineBuilder, Runtime,
 capabilities, Nuclei, Context, or application orchestration. No correlated
 pipeline state exists. `VULNERABILITIES` remains a `FindingRecordCollection`.
 
-This milestone does not implement CVSS, EPSS, KEV, exploit intelligence,
-Knowledge Graph integration, Risk Intelligence integration, remediation,
-persistence, cross-scan storage, cross-scheme alias resolution, distributed
-correlation, or AI reasoning.
+CVSS, EPSS, and KEV are modeled by the separate downstream
+[Vulnerability Enrichment](vulnerability-enrichment.md) architecture. Those
+signals never affect correlation or canonical identity and are not published
+by Runtime. Exploit intelligence, Knowledge Graph integration, Risk
+Intelligence integration, remediation, persistence, cross-scan storage,
+cross-scheme alias resolution, distributed correlation, and AI reasoning
+remain outside this boundary.

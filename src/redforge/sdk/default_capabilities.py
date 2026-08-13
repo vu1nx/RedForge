@@ -3,6 +3,7 @@
 from redforge.sdk.capability_definition import CapabilityDefinition
 from redforge.sdk.capability_id import (
     ASSET_INTELLIGENCE,
+    FINDING_CORRELATION,
     HOST_RESOLUTION,
     HTTP_PROBE,
     KNOWLEDGE_GRAPH,
@@ -10,6 +11,7 @@ from redforge.sdk.capability_id import (
     SUBDOMAIN_DISCOVERY,
     TECHNOLOGY_DETECTION,
     VULNERABILITY_DETECTION,
+    VULNERABILITY_ENRICHMENT,
     VULNERABILITY_INTELLIGENCE,
     WEB_CRAWL,
 )
@@ -30,6 +32,15 @@ DEFAULT_CAPABILITY_DEFINITIONS = (
         ),
         provides=(PipelineStateKey.ASSET_INTELLIGENCE,),
         tags=("analysis", "intelligence"),
+    ),
+    CapabilityDefinition(
+        capability_id=FINDING_CORRELATION,
+        display_name="Finding Correlation",
+        description="Correlates normalized findings into canonical findings.",
+        version="1.0",
+        requires=(PipelineStateKey.VULNERABILITIES,),
+        provides=(PipelineStateKey.CANONICAL_FINDINGS,),
+        tags=("analysis", "correlation", "vulnerability"),
     ),
     CapabilityDefinition(
         capability_id=HOST_RESOLUTION,
@@ -98,6 +109,15 @@ DEFAULT_CAPABILITY_DEFINITIONS = (
         requires=(PipelineStateKey.HTTP_ENDPOINTS,),
         provides=(PipelineStateKey.VULNERABILITIES,),
         tags=("active", "detection", "vulnerability"),
+    ),
+    CapabilityDefinition(
+        capability_id=VULNERABILITY_ENRICHMENT,
+        display_name="Vulnerability Enrichment",
+        description="Enriches canonical findings through configured intelligence providers.",
+        version="1.0",
+        requires=(PipelineStateKey.CANONICAL_FINDINGS,),
+        provides=(PipelineStateKey.ENRICHED_VULNERABILITIES,),
+        tags=("analysis", "enrichment", "vulnerability"),
     ),
     CapabilityDefinition(
         capability_id=VULNERABILITY_INTELLIGENCE,

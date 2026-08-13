@@ -4,6 +4,7 @@ This package contains concrete capability implementations.
 """
 
 from redforge.capabilities.asset_intelligence import AssetIntelligenceCapability
+from redforge.capabilities.finding_correlation import FindingCorrelationCapability
 from redforge.capabilities.health import HealthCapability
 from redforge.capabilities.host_resolution import HostResolutionCapability
 from redforge.capabilities.http_probe import HttpProbeCapability
@@ -14,6 +15,10 @@ from redforge.capabilities.technology_detection import TechnologyDetectionCapabi
 from redforge.capabilities.vulnerability_detection import (
     VulnerabilityDetectionCapability,
 )
+from redforge.capabilities.vulnerability_enrichment import (
+    VulnerabilityEnrichmentCapability,
+    VulnerabilityEnrichmentServicePort,
+)
 from redforge.capabilities.vulnerability_intelligence import (
     VulnerabilityIntelligenceCapability,
 )
@@ -21,6 +26,7 @@ from redforge.capabilities.web_crawl import WebCrawlCapability
 
 __all__ = [
     "AssetIntelligenceCapability",
+    "FindingCorrelationCapability",
     "HealthCapability",
     "HostResolutionCapability",
     "HttpProbeCapability",
@@ -30,5 +36,7 @@ __all__ = [
     "TechnologyDetectionCapability",
     "VulnerabilityIntelligenceCapability",
     "VulnerabilityDetectionCapability",
+    "VulnerabilityEnrichmentCapability",
+    "VulnerabilityEnrichmentServicePort",
     "WebCrawlCapability",
 ]

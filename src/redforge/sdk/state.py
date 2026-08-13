@@ -16,6 +16,8 @@ class PipelineStateKey(StrEnum):
     ASSET_INTELLIGENCE = "asset_intelligence"
     VULNERABILITY_INTELLIGENCE = "vulnerability_intelligence"
     VULNERABILITIES = "vulnerabilities"
+    CANONICAL_FINDINGS = "canonical_findings"
+    ENRICHED_VULNERABILITIES = "enriched_vulnerabilities"
     KNOWLEDGE_GRAPH = "knowledge_graph"
     RISK_INTELLIGENCE = "risk_intelligence"
 
@@ -60,6 +62,16 @@ def validate_pipeline_state_value(key: PipelineStateKey, value: object) -> None:
         from redforge.domain.finding_intelligence import FindingRecordCollection
 
         _validate_instance(value, FindingRecordCollection, key)
+    elif key is PipelineStateKey.CANONICAL_FINDINGS:
+        from redforge.domain.finding_correlation import CanonicalFindingCollection
+
+        _validate_instance(value, CanonicalFindingCollection, key)
+    elif key is PipelineStateKey.ENRICHED_VULNERABILITIES:
+        from redforge.domain.vulnerability_enrichment import (
+            EnrichedCanonicalFindingCollection,
+        )
+
+        _validate_instance(value, EnrichedCanonicalFindingCollection, key)
     elif key is PipelineStateKey.KNOWLEDGE_GRAPH:
         from redforge.domain.knowledge_graph import KnowledgeGraph
 

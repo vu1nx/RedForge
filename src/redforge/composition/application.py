@@ -36,6 +36,7 @@ from redforge.planning import (
 )
 from redforge.sdk import (
     ASSET_INTELLIGENCE,
+    FINDING_CORRELATION,
     HOST_RESOLUTION,
     HTTP_PROBE,
     KNOWLEDGE_GRAPH,
@@ -43,9 +44,13 @@ from redforge.sdk import (
     SUBDOMAIN_DISCOVERY,
     TECHNOLOGY_DETECTION,
     VULNERABILITY_DETECTION,
+    VULNERABILITY_ENRICHMENT,
     VULNERABILITY_INTELLIGENCE,
     WEB_CRAWL,
     CapabilityId,
+    CvssProvider,
+    EpssProvider,
+    KevProvider,
     ProviderReadinessProbe,
     ProviderRole,
     SubdomainProvider,
@@ -71,6 +76,8 @@ _FULL_ASSESSMENT_CAPABILITIES = (
     ASSET_INTELLIGENCE,
     VULNERABILITY_INTELLIGENCE,
     VULNERABILITY_DETECTION,
+    FINDING_CORRELATION,
+    VULNERABILITY_ENRICHMENT,
     KNOWLEDGE_GRAPH,
     RISK_INTELLIGENCE,
 )
@@ -102,6 +109,9 @@ class CompositionProviders:
         default=None,
         repr=False,
     )
+    cvss_provider: CvssProvider | None = field(default=None, repr=False)
+    epss_provider: EpssProvider | None = field(default=None, repr=False)
+    kev_provider: KevProvider | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -200,6 +210,9 @@ class ApplicationComposition:
                     self.providers.technology_detector,
                     self.providers.vulnerability_provider,
                     self.providers.vulnerability_detector,
+                    self.providers.cvss_provider,
+                    self.providers.epss_provider,
+                    self.providers.kev_provider,
                 )
             ):
                 raise ValueError(
@@ -333,6 +346,9 @@ class ApplicationComposition:
             technology_detector=providers.technology_detector,
             vulnerability_provider=providers.vulnerability_provider,
             vulnerability_detector=providers.vulnerability_detector,
+            cvss_provider=providers.cvss_provider,
+            epss_provider=providers.epss_provider,
+            kev_provider=providers.kev_provider,
             tool_runner=runner,
         )
 

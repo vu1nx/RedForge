@@ -410,21 +410,24 @@ Nuclei never becomes a planner step.
 
 This is an offline-validated architecture foundation. It does not yet include
 real Nuclei execution validation, exploit intelligence, attack-graph
-integration, enrichment runtime publication, risk scoring, or remediation. See
+integration, real enrichment data sources, risk scoring, or remediation. See
 [Nuclei Vulnerability Detection Architecture](docs/nuclei-vulnerability-detection.md).
 
 Finding identity, evidence, provenance, categorical confidence and quality,
 generic references, and deterministic fingerprinting live in the independent
 [Finding Intelligence Domain](docs/finding-intelligence.md). Scanner-specific
-IDs never participate in finding identity. Correlation and canonical
-aggregation are available as a pure offline domain service and are not yet
-published by the runtime. See [Canonical Finding Correlation and
+IDs never participate in finding identity. The thin `finding_correlation`
+capability delegates to the pure domain service and publishes the immutable
+`CANONICAL_FINDINGS` state. See [Canonical Finding Correlation and
 Aggregation](docs/finding-correlation.md).
 
-Canonical CVE findings can also be transformed offline into immutable,
+Canonical CVE findings can also be transformed into immutable,
 provider-neutral CVSS 3.0/3.1, FIRST EPSS, and CISA KEV intelligence. The
-enrichment service isolates provider failures and never changes finding or
-canonical identity. See [Vulnerability Enrichment
+`vulnerability_enrichment` capability publishes `ENRICHED_VULNERABILITIES`
+through injected providers; the default composition reports those real
+provider sources unavailable rather than fabricating data. The enrichment
+service isolates provider failures and never changes finding or canonical
+identity. See [Vulnerability Enrichment
 Intelligence](docs/vulnerability-enrichment.md).
 
 ## Multi-Output State

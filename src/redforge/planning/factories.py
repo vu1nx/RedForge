@@ -22,6 +22,7 @@ from redforge.adapters.technology_detection import (
 )
 from redforge.adapters.tool_runner import LocalSubprocessToolRunner
 from redforge.capabilities.asset_intelligence import AssetIntelligenceCapability
+from redforge.capabilities.finding_correlation import FindingCorrelationCapability
 from redforge.capabilities.host_resolution import HostResolutionCapability
 from redforge.capabilities.http_probe import HttpProbeCapability
 from redforge.capabilities.knowledge_graph import KnowledgeGraphCapability
@@ -30,6 +31,9 @@ from redforge.capabilities.subdomain_discovery import SubdomainDiscovery
 from redforge.capabilities.technology_detection import TechnologyDetectionCapability
 from redforge.capabilities.vulnerability_detection import (
     VulnerabilityDetectionCapability,
+)
+from redforge.capabilities.vulnerability_enrichment import (
+    VulnerabilityEnrichmentCapability,
 )
 from redforge.capabilities.vulnerability_intelligence import (
     VulnerabilityIntelligenceCapability,
@@ -45,6 +49,7 @@ from redforge.planning.registry import CapabilityRegistry
 from redforge.sdk.capability import Capability
 from redforge.sdk.capability_id import (
     ASSET_INTELLIGENCE,
+    FINDING_CORRELATION,
     HOST_RESOLUTION,
     HTTP_PROBE,
     KNOWLEDGE_GRAPH,
@@ -52,6 +57,7 @@ from redforge.sdk.capability_id import (
     SUBDOMAIN_DISCOVERY,
     TECHNOLOGY_DETECTION,
     VULNERABILITY_DETECTION,
+    VULNERABILITY_ENRICHMENT,
     VULNERABILITY_INTELLIGENCE,
     WEB_CRAWL,
     CapabilityId,
@@ -66,6 +72,7 @@ from redforge.sdk.subdomain_discovery import SubdomainProvider
 from redforge.sdk.technology_detection import TechnologyDetectionProvider
 from redforge.sdk.tool import ToolId, ToolRunner
 from redforge.sdk.vulnerability import VulnerabilityDetectionProvider
+from redforge.sdk.vulnerability_enrichment import CvssProvider, EpssProvider, KevProvider
 from redforge.sdk.web_crawl import WebCrawlProvider
 
 type CapabilityFactory = Callable[[], Capability]
@@ -78,6 +85,9 @@ VULNERABILITY_PROVIDER_ROLE = ProviderRole("vulnerability_provider")
 VULNERABILITY_DETECTION_PROVIDER_ROLE = ProviderRole(
     "vulnerability_detection_provider"
 )
+CVSS_PROVIDER_ROLE = ProviderRole("cvss_provider")
+EPSS_PROVIDER_ROLE = ProviderRole("epss_provider")
+KEV_PROVIDER_ROLE = ProviderRole("kev_provider")
 
 
 def _external_requirement(
@@ -249,8 +259,27 @@ class CapabilityDependencies:
     technology_detector: TechnologyDetectionProvider | None = None
     vulnerability_provider: VulnerabilityProvider | None = None
     vulnerability_detector: VulnerabilityDetectionProvider | None = None
+    cvss_provider: CvssProvider | None = None
+    epss_provider: EpssProvider | None = None
+    kev_provider: KevProvider | None = None
     tool_runner: ToolRunner | None = None
     exact_target: ExactNetworkTarget | None = None
+
+
+def _create_vulnerability_enrichment_capability(
+    dependencies: CapabilityDependencies,
+) -> VulnerabilityEnrichmentCapability:
+    from redforge.application.vulnerability_enrichment import (
+        create_vulnerability_enrichment_service,
+    )
+
+    return VulnerabilityEnrichmentCapability(
+        service=create_vulnerability_enrichment_service(
+            cvss_provider=dependencies.cvss_provider,
+            epss_provider=dependencies.epss_provider,
+            kev_provider=dependencies.kev_provider,
+        )
+    )
 
 
 def create_default_factory_registry(
@@ -264,6 +293,9 @@ def create_default_factory_registry(
     technology_detector: TechnologyDetectionProvider | None = None,
     vulnerability_provider: VulnerabilityProvider | None = None,
     vulnerability_detector: VulnerabilityDetectionProvider | None = None,
+    cvss_provider: CvssProvider | None = None,
+    epss_provider: EpssProvider | None = None,
+    kev_provider: KevProvider | None = None,
     tool_runner: ToolRunner | None = None,
 ) -> CapabilityFactoryRegistry:
     """Return lazy factories for every executable default descriptor."""
@@ -275,6 +307,9 @@ def create_default_factory_registry(
         technology_detector=technology_detector,
         vulnerability_provider=vulnerability_provider,
         vulnerability_detector=vulnerability_detector,
+        cvss_provider=cvss_provider,
+        epss_provider=epss_provider,
+        kev_provider=kev_provider,
         tool_runner=tool_runner,
     )
     if dependencies is not None and any(
@@ -287,6 +322,9 @@ def create_default_factory_registry(
             technology_detector,
             vulnerability_provider,
             vulnerability_detector,
+            cvss_provider,
+            epss_provider,
+            kev_provider,
             tool_runner,
         )
     ):
@@ -408,6 +446,7 @@ def create_default_factory_registry(
         ),
     )
     register(ASSET_INTELLIGENCE, AssetIntelligenceCapability)
+    register(FINDING_CORRELATION, FindingCorrelationCapability)
     register(
         VULNERABILITY_DETECTION,
         lambda: VulnerabilityDetectionCapability(
@@ -438,6 +477,24 @@ def create_default_factory_registry(
                 configuration_present=(
                     configured.vulnerability_provider is not None
                 ),
+            ),
+        ),
+    )
+    register(
+        VULNERABILITY_ENRICHMENT,
+        lambda: _create_vulnerability_enrichment_capability(configured),
+        requirements=(
+            ReadinessRequirement.provider(
+                CVSS_PROVIDER_ROLE,
+                configuration_present=configured.cvss_provider is not None,
+            ),
+            ReadinessRequirement.provider(
+                EPSS_PROVIDER_ROLE,
+                configuration_present=configured.epss_provider is not None,
+            ),
+            ReadinessRequirement.provider(
+                KEV_PROVIDER_ROLE,
+                configuration_present=configured.kev_provider is not None,
             ),
         ),
     )

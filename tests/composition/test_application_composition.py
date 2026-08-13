@@ -18,15 +18,25 @@ from redforge.composition import (
     CompositionProfile,
     CompositionProviders,
 )
-from redforge.domain import Endpoint, Host
+from redforge.domain import (
+    CveId,
+    CvssProviderOutcome,
+    Endpoint,
+    EpssProviderOutcome,
+    Host,
+    KevProviderOutcome,
+)
+from redforge.domain.http_probe import HttpProbeEndpoint
 from redforge.observability import DiagnosticEvent, DiagnosticEventType
 from redforge.planning import VULNERABILITY_PROVIDER_ROLE
 from redforge.sdk import (
     HttpProbeProviderResult,
+    PipelineStateKey,
     Status,
     SubdomainDiscoveryResult,
     TechnologyDetectionProviderResult,
     ToolDefinition,
+    VulnerabilityDetectionResult,
     WebCrawlProviderResult,
 )
 from redforge.testing import FakeToolRunner
@@ -43,6 +53,8 @@ FULL_ASSESSMENT_IDS = (
     "asset_intelligence",
     "vulnerability_intelligence",
     "vulnerability_detection",
+    "finding_correlation",
+    "vulnerability_enrichment",
     "knowledge_graph",
     "risk_intelligence",
 )
@@ -102,6 +114,28 @@ class UnusedVulnerabilityProvider:
         raise AssertionError(
             f"vulnerability provider unexpectedly called for {cpe_name}"
         )
+
+
+class UnusedVulnerabilityDetector:
+    def detect(
+        self, endpoints: tuple[HttpProbeEndpoint, ...]
+    ) -> VulnerabilityDetectionResult:
+        raise AssertionError(f"detection unexpectedly called for {endpoints!r}")
+
+
+class UnusedCvssProvider:
+    def get_cvss(self, cve_ids: tuple[CveId, ...]) -> tuple[CvssProviderOutcome, ...]:
+        raise AssertionError(f"CVSS unexpectedly called for {len(cve_ids)} identifiers")
+
+
+class UnusedEpssProvider:
+    def get_epss(self, cve_ids: tuple[CveId, ...]) -> tuple[EpssProviderOutcome, ...]:
+        raise AssertionError(f"EPSS unexpectedly called for {len(cve_ids)} identifiers")
+
+
+class UnusedKevProvider:
+    def get_kev(self, cve_ids: tuple[CveId, ...]) -> tuple[KevProviderOutcome, ...]:
+        raise AssertionError(f"KEV unexpectedly called for {len(cve_ids)} identifiers")
 
 
 class CountingProviderProbe:
@@ -244,9 +278,75 @@ def test_full_profile_accepts_explicit_provider_and_readiness_probe() -> None:
     assert result.pipeline_result.executed_capabilities == tuple(
         item
         for item in FULL_ASSESSMENT_IDS
-        if item != "vulnerability_detection"
+        if item
+        not in {
+            "vulnerability_detection",
+            "finding_correlation",
+            "vulnerability_enrichment",
+        }
     )
     assert probe.calls == 1
+
+
+def test_enrichment_providers_are_explicit_and_factories_remain_lazy() -> None:
+    dependencies = _recon_dependencies()
+    composition = ApplicationComposition(
+        CompositionProfile.FULL_ASSESSMENT,
+        providers=CompositionProviders(
+            subdomain_provider=dependencies.subdomain_provider,
+            host_resolver=dependencies.host_resolver,
+            http_transport=dependencies.http_transport,
+            web_crawler=dependencies.web_crawler,
+            technology_detector=dependencies.technology_detector,
+            vulnerability_detector=UnusedVulnerabilityDetector(),
+            cvss_provider=UnusedCvssProvider(),
+            epss_provider=UnusedEpssProvider(),
+            kev_provider=UnusedKevProvider(),
+        ),
+    )
+    config = ScanConfig(
+        scope=ScanConfig.for_full_assessment("authorized.example").scope,
+        requested_outputs=(PipelineStateKey.ENRICHED_VULNERABILITIES,),
+    )
+
+    inspection = composition.create_inspector().inspect(config)
+
+    assert inspection.preflight.ready
+    assert tuple(item.value for item in inspection.manifest.provider_ids[-3:]) == (
+        "cvss_provider",
+        "epss_provider",
+        "kev_provider",
+    )
+
+
+def test_absent_production_enrichment_providers_fail_preflight_safely() -> None:
+    dependencies = _recon_dependencies()
+    composition = ApplicationComposition(
+        CompositionProfile.FULL_ASSESSMENT,
+        providers=CompositionProviders(
+            subdomain_provider=dependencies.subdomain_provider,
+            host_resolver=dependencies.host_resolver,
+            http_transport=dependencies.http_transport,
+            web_crawler=dependencies.web_crawler,
+            technology_detector=dependencies.technology_detector,
+            vulnerability_detector=UnusedVulnerabilityDetector(),
+        ),
+    )
+    config = ScanConfig(
+        scope=ScanConfig.for_full_assessment("authorized.example").scope,
+        requested_outputs=(PipelineStateKey.ENRICHED_VULNERABILITIES,),
+    )
+
+    inspection = composition.create_inspector().inspect(config)
+
+    failures = tuple(
+        check
+        for check in inspection.preflight.checks
+        if check.status is not ReadinessStatus.READY
+    )
+    assert not inspection.preflight.ready
+    assert len(failures) == 3
+    assert all(check.reason is ReadinessReason.PROVIDER_ABSENT for check in failures)
 
 
 def test_injected_tool_runner_and_probe_remain_lazy_until_preflight() -> None:

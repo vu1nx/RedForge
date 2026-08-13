@@ -50,11 +50,14 @@ TECHNOLOGY_DETECTION = CapabilityId("technology_detection")
 ASSET_INTELLIGENCE = CapabilityId("asset_intelligence")
 VULNERABILITY_INTELLIGENCE = CapabilityId("vulnerability_intelligence")
 VULNERABILITY_DETECTION = CapabilityId("vulnerability_detection")
+FINDING_CORRELATION = CapabilityId("finding_correlation")
+VULNERABILITY_ENRICHMENT = CapabilityId("vulnerability_enrichment")
 KNOWLEDGE_GRAPH = CapabilityId("knowledge_graph")
 RISK_INTELLIGENCE = CapabilityId("risk_intelligence")
 
 BUILTIN_CAPABILITY_IDS = (
     ASSET_INTELLIGENCE,
+    FINDING_CORRELATION,
     HOST_RESOLUTION,
     HTTP_PROBE,
     KNOWLEDGE_GRAPH,
@@ -62,6 +65,7 @@ BUILTIN_CAPABILITY_IDS = (
     SUBDOMAIN_DISCOVERY,
     TECHNOLOGY_DETECTION,
     VULNERABILITY_DETECTION,
+    VULNERABILITY_ENRICHMENT,
     VULNERABILITY_INTELLIGENCE,
     WEB_CRAWL,
 )

@@ -66,6 +66,7 @@ def test_default_registry_contains_only_existing_descriptor_contracts() -> None:
 
     assert tuple(item.name for item in registry.descriptors) == (
         "asset_intelligence",
+        "finding_correlation",
         "host_resolution",
         "http_probe",
         "knowledge_graph",
@@ -73,6 +74,7 @@ def test_default_registry_contains_only_existing_descriptor_contracts() -> None:
         "subdomain_discovery",
         "technology_detection",
         "vulnerability_detection",
+        "vulnerability_enrichment",
         "vulnerability_intelligence",
         "web_crawl",
     )

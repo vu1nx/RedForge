@@ -121,6 +121,11 @@ def test_http_probe_is_the_single_producer_for_both_probe_outputs() -> None:
             "vulnerability_intelligence",
         ),
         (PipelineStateKey.VULNERABILITIES, "vulnerability_detection"),
+        (PipelineStateKey.CANONICAL_FINDINGS, "finding_correlation"),
+        (
+            PipelineStateKey.ENRICHED_VULNERABILITIES,
+            "vulnerability_enrichment",
+        ),
         (PipelineStateKey.KNOWLEDGE_GRAPH, "knowledge_graph"),
         (PipelineStateKey.RISK_INTELLIGENCE, "risk_intelligence"),
     ),
@@ -147,10 +152,36 @@ def test_complete_final_state_set_reuses_each_capability_once() -> None:
         "host_resolution",
         "http_probe",
         "vulnerability_detection",
+        "finding_correlation",
+        "vulnerability_enrichment",
         "web_crawl",
         "technology_detection",
         "asset_intelligence",
         "vulnerability_intelligence",
         "knowledge_graph",
         "risk_intelligence",
+    )
+
+
+def test_enrichment_goal_uses_the_transitive_detection_chain() -> None:
+    plan = ExecutionPlanner(create_default_registry()).plan(
+        goals=(PipelineStateKey.ENRICHED_VULNERABILITIES,)
+    )
+
+    assert plan.required_capabilities == (
+        "subdomain_discovery",
+        "host_resolution",
+        "http_probe",
+        "vulnerability_detection",
+        "finding_correlation",
+        "vulnerability_enrichment",
+    )
+    assert ExecutionPlanner(create_default_registry()).plan(
+        goals=(PipelineStateKey.TECHNOLOGIES,)
+    ).required_capabilities == (
+        "subdomain_discovery",
+        "host_resolution",
+        "http_probe",
+        "web_crawl",
+        "technology_detection",
     )

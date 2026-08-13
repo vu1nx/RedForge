@@ -55,7 +55,12 @@ FULL_ORDER = (
 FULL_STATE = tuple(
     key
     for key in PipelineStateKey
-    if key is not PipelineStateKey.VULNERABILITIES
+    if key
+    not in {
+        PipelineStateKey.VULNERABILITIES,
+        PipelineStateKey.CANONICAL_FINDINGS,
+        PipelineStateKey.ENRICHED_VULNERABILITIES,
+    }
 )
 
 

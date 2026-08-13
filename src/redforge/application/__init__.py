@@ -30,7 +30,10 @@ from redforge.application.scan_config import (
     prepare_scan,
 )
 from redforge.application.scan_limits import create_scan_limit_policy
-from redforge.application.vulnerability_enrichment import VulnerabilityEnrichmentService
+from redforge.application.vulnerability_enrichment import (
+    VulnerabilityEnrichmentService,
+    create_vulnerability_enrichment_service,
+)
 from redforge.domain.scan_scope import (
     ExactNetworkTarget,
     ScanScope,
@@ -87,5 +90,6 @@ __all__ = [
     "ToolReadinessProbe",
     "ToolchainManifest",
     "VulnerabilityEnrichmentService",
+    "create_vulnerability_enrichment_service",
     "prepare_scan",
 ]

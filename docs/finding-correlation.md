@@ -97,16 +97,22 @@ strongest categorical evidence quality, and typed non-blocking conflicts.
 decisions so blocking conflicts and possible correlations remain visible.
 Normal disagreements are typed domain values rather than broad exceptions.
 
-## Current boundary
+## Runtime boundary
 
-Correlation is not integrated into Planner, PipelineBuilder, Runtime,
-capabilities, Nuclei, Context, or application orchestration. No correlated
-pipeline state exists. `VULNERABILITIES` remains a `FindingRecordCollection`.
+The provider-neutral `finding_correlation` capability consumes the existing
+typed `VULNERABILITIES` state and delegates once to `FindingCorrelator`. It
+atomically publishes a `CanonicalFindingCollection` as `CANONICAL_FINDINGS`.
+Empty input is a successful empty publication; ordinary `POSSIBLE` and
+`NO_MATCH` decisions remain domain results rather than runtime failures.
+
+The capability contains no correlation policy, provider knowledge, I/O, or
+Nuclei behavior. Planning derives the dependency from the default capability
+definition rather than hard-coded application ordering.
 
 CVSS, EPSS, and KEV are modeled by the separate downstream
 [Vulnerability Enrichment](vulnerability-enrichment.md) architecture. Those
-signals never affect correlation or canonical identity and are not published
-by Runtime. Exploit intelligence, Knowledge Graph integration, Risk
+signals never affect correlation or canonical identity. Exploit intelligence,
+Knowledge Graph integration, Risk
 Intelligence integration, remediation, persistence, cross-scan storage,
 cross-scheme alias resolution, distributed correlation, and AI reasoning
 remain outside this boundary.

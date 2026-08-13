@@ -20,6 +20,8 @@ host_resolution -> HOSTS
 http_probe -> ALIVE_HOSTS + HTTP_ENDPOINTS
         |                 |
         |                 +-> vulnerability_detection -> VULNERABILITIES
+        |                     -> finding_correlation -> CANONICAL_FINDINGS
+        |                     -> vulnerability_enrichment -> ENRICHED_VULNERABILITIES
         |
 web_crawl -> ENDPOINTS
         |
@@ -68,7 +70,7 @@ External tool identities do not appear in execution plans.
 ## Composition and closure
 
 `CapabilityRegistry` holds immutable definitions only.
-`CapabilityFactoryRegistry` holds one lazy factory for each of the ten default
+`CapabilityFactoryRegistry` holds one lazy factory for each default
 capability IDs. `ExecutionPlanner` expands a requested state through unique
 producers, and `PipelineBuilder` creates one fresh capability for each plan
 step. `PlannedExecution` delegates the resulting pipeline to the existing
@@ -93,6 +95,18 @@ knowledge_graph
 risk_intelligence
 ```
 
+That existing risk closure is intentionally unchanged. Requesting
+`ENRICHED_VULNERABILITIES` instead derives the separate detection closure:
+
+```text
+subdomain_discovery
+host_resolution
+http_probe
+vulnerability_detection
+finding_correlation
+vulnerability_enrichment
+```
+
 The default tool registry independently contains `subfinder`, `httpx`,
 `katana`, `whatweb`, and the architecture-only `nuclei` definition. Those
 identities select replaceable adapters; they are
@@ -110,6 +124,8 @@ The canonical runtime values are:
 | `ALIVE_HOSTS` | `http_probe` | tuple of `Host` |
 | `HTTP_ENDPOINTS` | `http_probe` | tuple of `HttpProbeEndpoint` |
 | `VULNERABILITIES` | `vulnerability_detection` | `FindingRecordCollection` |
+| `CANONICAL_FINDINGS` | `finding_correlation` | `CanonicalFindingCollection` |
+| `ENRICHED_VULNERABILITIES` | `vulnerability_enrichment` | `EnrichedCanonicalFindingCollection` |
 | `ENDPOINTS` | `web_crawl` | tuple of `Endpoint` |
 | `TECHNOLOGIES` | `technology_detection` | tuple of `Technology` |
 | `ASSET_INTELLIGENCE` | `asset_intelligence` | `AssetIntelligence` |

@@ -104,22 +104,23 @@ def test_finding_correlation_remains_a_pure_provider_neutral_domain_service() ->
     assert not any(term in source for term in ("cvss", "epss", "kev", "risk score"))
 
 
-def test_correlation_has_no_runtime_planner_capability_or_adapter_integration() -> None:
-    forbidden_names = (
-        "FindingCorrelator",
-        "CanonicalFinding",
-        "finding_correlation",
+def test_correlation_runtime_integration_preserves_layer_boundaries() -> None:
+    capability = _SOURCE_ROOT / "capabilities" / "finding_correlation.py"
+    forbidden = ("redforge.adapters", "subprocess", "socket", "urllib", "requests")
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in _imports(capability)
+        for prefix in forbidden
     )
-    paths = (
-        *(_SOURCE_ROOT / "runtime").rglob("*.py"),
-        *(_SOURCE_ROOT / "planning").rglob("*.py"),
-        *(_SOURCE_ROOT / "capabilities").rglob("*.py"),
-        _SOURCE_ROOT / "adapters" / "nuclei" / "provider.py",
-    )
+    assert "FindingCorrelator.correlate" in capability.read_text(encoding="utf-8")
 
-    for path in paths:
+    for path in (
+        *(_SOURCE_ROOT / "runtime").rglob("*.py"),
+        _SOURCE_ROOT / "planning" / "planner.py",
+        _SOURCE_ROOT / "adapters" / "nuclei" / "provider.py",
+    ):
         source = path.read_text(encoding="utf-8")
-        assert not any(name in source for name in forbidden_names), path
+        assert "FindingCorrelator" not in source, path
 
 
 def test_vulnerability_capability_does_not_reference_nvd_payload_keys() -> None:
@@ -1742,11 +1743,27 @@ def test_detection_correlation_risk_and_tool_runner_do_not_import_enrichment() -
             ), source_path
 
 
-def test_enrichment_is_not_integrated_into_runtime_planning_or_capabilities() -> None:
-    for package in ("runtime", "planning", "capabilities", "composition"):
-        for path in (_SOURCE_ROOT / package).rglob("*.py"):
-            source = path.read_text(encoding="utf-8").lower()
-            assert "enrichedcanonicalfinding" not in source, path
-            assert "vulnerabilityenrichmentservice" not in source, path
-            assert "epssprovider" not in source, path
-            assert "kevprovider" not in source, path
+def test_enrichment_runtime_integration_preserves_layer_boundaries() -> None:
+    capability = _SOURCE_ROOT / "capabilities" / "vulnerability_enrichment.py"
+    forbidden = (
+        "redforge.adapters",
+        "redforge.application.vulnerability_enrichment",
+        "subprocess",
+        "socket",
+        "urllib",
+        "requests",
+    )
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in _imports(capability)
+        for prefix in forbidden
+    )
+    for path in (
+        *(_SOURCE_ROOT / "runtime").rglob("*.py"),
+        _SOURCE_ROOT / "planning" / "planner.py",
+        _SOURCE_ROOT / "capabilities" / "risk_intelligence.py",
+        _SOURCE_ROOT / "adapters" / "nuclei" / "provider.py",
+    ):
+        source = path.read_text(encoding="utf-8")
+        assert "EnrichmentCompleteness" not in source, path
+        assert "VulnerabilityEnrichmentService" not in source, path

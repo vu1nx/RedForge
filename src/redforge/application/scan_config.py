@@ -28,6 +28,8 @@ _APPLICATION_OUTPUTS = frozenset(
         PipelineStateKey.ASSET_INTELLIGENCE,
         PipelineStateKey.VULNERABILITY_INTELLIGENCE,
         PipelineStateKey.VULNERABILITIES,
+        PipelineStateKey.CANONICAL_FINDINGS,
+        PipelineStateKey.ENRICHED_VULNERABILITIES,
         PipelineStateKey.KNOWLEDGE_GRAPH,
         PipelineStateKey.RISK_INTELLIGENCE,
     )

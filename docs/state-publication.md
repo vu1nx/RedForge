@@ -32,6 +32,12 @@ The runtime validates which state keys the capability actually publishes.
 Caller iterables are copied to a tuple, malformed elements and duplicate keys
 are rejected, and publication order is preserved.
 
+Canonical correlation and enrichment use the same boundary:
+`CANONICAL_FINDINGS` accepts only `CanonicalFindingCollection`, while
+`ENRICHED_VULNERABILITIES` accepts only
+`EnrichedCanonicalFindingCollection`. Raw lists, tuples, dictionaries, and
+provider response objects are invalid state values.
+
 ```python
 from redforge.sdk import PipelineStateKey, Result, StatePublication, Status
 

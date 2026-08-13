@@ -61,6 +61,9 @@ technology_detection
 ```text
 asset_intelligence
 vulnerability_intelligence
+vulnerability_detection
+finding_correlation
+vulnerability_enrichment
 knowledge_graph
 risk_intelligence
 ```
@@ -69,6 +72,12 @@ The full profile deliberately does not create a vulnerability provider.
 Composition still succeeds; a full scan's accepted preflight reports the
 missing provider configuration as not ready before Context creation or
 capability construction.
+
+The new canonical-finding path is registered in `full_assessment` but is not
+silently added to the existing risk goal. Explicit requests for
+`ENRICHED_VULNERABILITIES` require separately injected CVSS, EPSS, and KEV
+provider ports. Until production HTTP sources are implemented, preflight
+reports each absent role without constructing the lazy enrichment capability.
 
 ## Construction and isolation
 

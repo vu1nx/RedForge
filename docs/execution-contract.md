@@ -58,6 +58,11 @@ slotted read models. Validation of a multi-output batch completes before the
 Context mapping changes, so downstream capabilities cannot observe half of an
 HTTP probe publication.
 
+`CANONICAL_FINDINGS` requires an exact `CanonicalFindingCollection`, and
+`ENRICHED_VULNERABILITIES` requires an exact
+`EnrichedCanonicalFindingCollection`; raw tuples and provider outcome wrappers
+are rejected.
+
 ## Defensive boundary
 
 Unexpected capability exceptions are converted to sanitized `ERROR` results.

@@ -7,8 +7,10 @@ import pytest  # type: ignore[reportMissingImports]
 
 import redforge.sdk as public_sdk
 from redforge.domain import HttpProbeEndpoint as PublicHttpProbeEndpoint
+from redforge.domain.finding_correlation import CanonicalFindingCollection
 from redforge.domain.host import Host, HostResolution
 from redforge.domain.http_probe import HttpProbeEndpoint
+from redforge.domain.vulnerability_enrichment import EnrichedCanonicalFindingCollection
 from redforge.sdk.context import Context
 from redforge.sdk.http_probe import HttpProbeProviderResult
 from redforge.sdk.result import Result, StatePublication, Status
@@ -216,6 +218,32 @@ def test_every_canonical_state_rejects_an_invalid_published_type(
         Context(target_id="example.com").publish(
             StatePublication(key, object())
         )
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    (
+        (PipelineStateKey.CANONICAL_FINDINGS, CanonicalFindingCollection()),
+        (
+            PipelineStateKey.ENRICHED_VULNERABILITIES,
+            EnrichedCanonicalFindingCollection(),
+        ),
+    ),
+)
+def test_finding_intelligence_state_requires_exact_typed_collections(
+    key: PipelineStateKey,
+    value: object,
+) -> None:
+    context = Context(target_id="example.com")
+    context.publish(StatePublication(key, value))
+    assert context.get(key) == value
+
+    invalid_values: tuple[object, ...] = ((), [], {}, object())
+    for invalid in invalid_values:
+        with pytest.raises(TypeError, match=key.value):
+            Context(target_id="example.com").publish(
+                StatePublication(key, invalid)
+            )
 
 
 def test_replacing_state_does_not_mutate_previously_published_value() -> None:

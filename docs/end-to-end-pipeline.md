@@ -109,7 +109,7 @@ The canonical runtime values are:
 | `HOSTS` | `host_resolution` | `HostResolution` |
 | `ALIVE_HOSTS` | `http_probe` | tuple of `Host` |
 | `HTTP_ENDPOINTS` | `http_probe` | tuple of `HttpProbeEndpoint` |
-| `VULNERABILITIES` | `vulnerability_detection` | `FindingCollection` |
+| `VULNERABILITIES` | `vulnerability_detection` | `FindingRecordCollection` |
 | `ENDPOINTS` | `web_crawl` | tuple of `Endpoint` |
 | `TECHNOLOGIES` | `technology_detection` | tuple of `Technology` |
 | `ASSET_INTELLIGENCE` | `asset_intelligence` | `AssetIntelligence` |

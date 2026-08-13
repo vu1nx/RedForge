@@ -402,7 +402,8 @@ See [WhatWeb Technology Detection Integration](docs/technology-detection-integra
 ### Nuclei vulnerability-detection foundation
 
 The provider-neutral `vulnerability_detection` capability consumes
-`HTTP_ENDPOINTS` and atomically publishes an immutable `FindingCollection` as
+`HTTP_ENDPOINTS` and atomically publishes an immutable
+`FindingRecordCollection` as
 `VULNERABILITIES`. The replaceable Nuclei adapter owns only the `nuclei` tool
 contract, bounded invocation construction, and strict JSONL normalization;
 Nuclei never becomes a planner step.
@@ -411,6 +412,12 @@ This is an offline-validated architecture foundation. It does not yet include
 real Nuclei execution validation, CVSS/EPSS/KEV enrichment, exploit
 intelligence, attack-graph integration, risk scoring, or remediation. See
 [Nuclei Vulnerability Detection Architecture](docs/nuclei-vulnerability-detection.md).
+
+Finding identity, evidence, provenance, categorical confidence and quality,
+generic references, and deterministic fingerprinting live in the independent
+[Finding Intelligence Domain](docs/finding-intelligence.md). Scanner-specific
+IDs never participate in finding identity. Correlation and canonical
+aggregation remain deferred.
 
 ## Multi-Output State
 

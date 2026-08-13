@@ -8,7 +8,34 @@ from redforge.domain.asset_association import AssetAssociation
 from redforge.domain.asset_intelligence import AssetIntelligence
 from redforge.domain.endpoint import Endpoint
 from redforge.domain.evidence import Evidence
-from redforge.domain.finding import Finding
+from redforge.domain.finding_intelligence import (
+    AffectedAsset,
+    AffectedEndpoint,
+    AffectedTechnology,
+    AssetIdentityKind,
+    DetectionMethod,
+    EvidenceConfidence,
+    EvidenceKind,
+    EvidenceQuality,
+    EvidenceSource,
+    EvidenceSourceKind,
+    EvidenceSummary,
+    FindingClassification,
+    FindingContext,
+    FindingEvidence,
+    FindingFingerprint,
+    FindingIdentity,
+    FindingMetadata,
+    FindingRecord,
+    FindingRecordCollection,
+    FindingReference,
+    FindingReferenceKind,
+    FindingSeverity,
+    FindingStatus,
+    FindingTag,
+    finding_fingerprint,
+    serialize_finding_record,
+)
 from redforge.domain.host import Host, HostAddress, HostResolution, IPVersion
 from redforge.domain.http_probe import HttpProbeEndpoint
 from redforge.domain.knowledge_graph import (
@@ -41,13 +68,40 @@ from redforge.domain.vulnerability_association import (
 )
 from redforge.domain.vulnerability_intelligence import VulnerabilityIntelligence
 
+# Compatibility name now points at the canonical finding-intelligence record.
+Finding = FindingRecord
+
 __all__ = [
     "Asset",
     "AssetAssociation",
     "AssetIntelligence",
+    "AffectedAsset",
+    "AffectedEndpoint",
+    "AffectedTechnology",
+    "AssetIdentityKind",
+    "DetectionMethod",
     "Evidence",
+    "EvidenceConfidence",
+    "EvidenceKind",
+    "EvidenceQuality",
+    "EvidenceSource",
+    "EvidenceSourceKind",
+    "EvidenceSummary",
     "ExactNetworkTarget",
     "Finding",
+    "FindingClassification",
+    "FindingContext",
+    "FindingEvidence",
+    "FindingFingerprint",
+    "FindingIdentity",
+    "FindingMetadata",
+    "FindingRecord",
+    "FindingRecordCollection",
+    "FindingReference",
+    "FindingReferenceKind",
+    "FindingSeverity",
+    "FindingStatus",
+    "FindingTag",
     "Host",
     "HostAddress",
     "HostResolution",
@@ -79,4 +133,6 @@ __all__ = [
     "VulnerabilitySeverity",
     "risk_assessment_identifier",
     "risk_level_for_score",
+    "finding_fingerprint",
+    "serialize_finding_record",
 ]

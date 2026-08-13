@@ -57,9 +57,9 @@ def validate_pipeline_state_value(key: PipelineStateKey, value: object) -> None:
 
         _validate_instance(value, VulnerabilityIntelligence, key)
     elif key is PipelineStateKey.VULNERABILITIES:
-        from redforge.sdk.vulnerability import FindingCollection
+        from redforge.domain.finding_intelligence import FindingRecordCollection
 
-        _validate_instance(value, FindingCollection, key)
+        _validate_instance(value, FindingRecordCollection, key)
     elif key is PipelineStateKey.KNOWLEDGE_GRAPH:
         from redforge.domain.knowledge_graph import KnowledgeGraph
 

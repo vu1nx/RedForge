@@ -124,7 +124,10 @@ def test_invocation_is_deterministic_stdin_fed_and_omits_raw_evidence() -> None:
 
 def test_clean_multiple_findings_are_normalized_and_deduplicated() -> None:
     output = "\n".join(
-        (_record(template_id="finding-b"), _record(template_id="finding-a"))
+        (
+            _record(template_id="finding-b", title="Finding B"),
+            _record(template_id="finding-a", title="Finding A"),
+        )
     )
     provider, runner = _provider(_result(f"{output}\n"))
 
@@ -132,11 +135,12 @@ def test_clean_multiple_findings_are_normalized_and_deduplicated() -> None:
 
     assert result.status is VulnerabilityDetectionStatus.SUCCESS
     assert len(result.findings) == 2
-    assert tuple(
-        item.template.template_id.value for item in result.findings
-    ) == ("finding-a", "finding-b")
+    assert {
+        item.metadata.source_record_id for item in result.findings
+    } == {"finding-a", "finding-b"}
     assert all(
-        item.severity is FindingSeverity.MEDIUM for item in result.findings
+        item.classification.severity is FindingSeverity.MEDIUM
+        for item in result.findings
     )
     assert len(runner.invocations) == 1
     assert "secret" not in repr(result)
@@ -152,8 +156,8 @@ def test_clean_multiple_findings_are_normalized_and_deduplicated() -> None:
 
 
 def test_conflicting_duplicate_selection_is_deterministic_and_partial() -> None:
-    first = _record(title="Z finding", severity="high")
-    second = _record(title="A finding", severity="low")
+    first = _record(title="Same finding", severity="high")
+    second = _record(title="Same finding", severity="low")
     forward_provider, _ = _provider(_result(f"{first}\n{second}\n"))
     reverse_provider, _ = _provider(_result(f"{second}\n{first}\n"))
 
@@ -164,7 +168,10 @@ def test_conflicting_duplicate_selection_is_deterministic_and_partial() -> None:
     assert forward.status is VulnerabilityDetectionStatus.PARTIAL
     assert forward.malformed_record_count == 1
     assert forward.duplicate_count == 1
-    assert forward.findings.findings[0].title == "A finding"
+    assert (
+        forward.findings.records[0].classification.severity
+        is FindingSeverity.HIGH
+    )
 
 
 def test_empty_malformed_mixed_and_unassociated_output_semantics() -> None:

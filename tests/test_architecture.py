@@ -60,6 +60,26 @@ def test_vulnerability_detection_boundaries_are_provider_neutral() -> None:
     )
 
 
+def test_finding_intelligence_domain_has_no_provider_or_execution_imports() -> None:
+    path = _SOURCE_ROOT / "domain" / "finding_intelligence.py"
+    forbidden = (
+        "redforge.adapters",
+        "redforge.sdk",
+        "redforge.runtime",
+        "subprocess",
+        "socket",
+        "urllib",
+        "requests",
+    )
+
+    assert not any(
+        name == prefix or name.startswith(f"{prefix}.")
+        for name in _imports(path)
+        for prefix in forbidden
+    )
+    assert "nuclei" not in path.read_text(encoding="utf-8").casefold()
+
+
 def test_vulnerability_capability_does_not_reference_nvd_payload_keys() -> None:
     source = (_SOURCE_ROOT / "capabilities" / "vulnerability_intelligence.py").read_text(
         encoding="utf-8"

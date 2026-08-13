@@ -1,11 +1,34 @@
 """Nuclei v3 adapter implemented exclusively through the ToolRunner port."""
 
-import hashlib
 import json
 import math
 from dataclasses import dataclass
+from ipaddress import ip_address
 from typing import cast
 
+from redforge.domain.finding_intelligence import (
+    AffectedAsset,
+    AffectedEndpoint,
+    AssetIdentityKind,
+    DetectionMethod,
+    EvidenceConfidence,
+    EvidenceKind,
+    EvidenceQuality,
+    EvidenceSource,
+    EvidenceSourceKind,
+    EvidenceSummary,
+    FindingClassification,
+    FindingContext,
+    FindingEvidence,
+    FindingFingerprint,
+    FindingIdentity,
+    FindingMetadata,
+    FindingRecord,
+    FindingRecordCollection,
+    FindingSeverity,
+    FindingStatus,
+    finding_fingerprint,
+)
 from redforge.domain.http_probe import HttpProbeEndpoint, normalize_http_url
 from redforge.sdk.tool import (
     ToolDefinition,
@@ -16,16 +39,6 @@ from redforge.sdk.tool import (
     ToolRunner,
 )
 from redforge.sdk.vulnerability import (
-    EvidenceReference,
-    ExtractorName,
-    Finding,
-    FindingCollection,
-    FindingId,
-    FindingSeverity,
-    FindingStatus,
-    MatcherName,
-    TemplateId,
-    TemplateReference,
     VulnerabilityDetectionResult,
     VulnerabilityDetectionStatus,
 )
@@ -89,12 +102,12 @@ class NucleiConfig:
 @dataclass(frozen=True, slots=True)
 class _PreparedTargets:
     targets: tuple[str, ...]
-    evidence_by_target: dict[str, EvidenceReference]
+    endpoints_by_target: dict[str, AffectedEndpoint]
 
 
 @dataclass(frozen=True, slots=True)
 class _ParseResult:
-    collection: FindingCollection
+    collection: FindingRecordCollection
     malformed: int
     duplicates: int
     unassociated: int
@@ -133,8 +146,8 @@ def _prepare_targets(
     return _PreparedTargets(
         ordered,
         {
-            target: EvidenceReference(f"http_endpoint_{index:06d}")
-            for index, target in enumerate(ordered, start=1)
+            target: AffectedEndpoint.from_url(target)
+            for target in ordered
         },
     )
 
@@ -142,20 +155,20 @@ def _prepare_targets(
 def _optional_name(
     record: dict[object, object],
     field_name: str,
-    model: type[MatcherName] | type[ExtractorName],
-) -> MatcherName | ExtractorName | None:
+) -> str | None:
     value = record.get(field_name)
     if value is None:
         return None
-    return model(_clean_text(value, maximum=_MAX_NAME_LENGTH))
+    return _clean_text(value, maximum=_MAX_NAME_LENGTH)
 
 
 def _finding_from_record(
     record: dict[object, object],
-    evidence_by_target: dict[str, EvidenceReference],
-) -> Finding | None:
-    template_id = TemplateId(
-        _clean_text(record.get("template-id"), maximum=_MAX_NAME_LENGTH)
+    endpoints_by_target: dict[str, AffectedEndpoint],
+) -> FindingRecord | None:
+    source_record_id = _clean_text(
+        record.get("template-id"),
+        maximum=_MAX_NAME_LENGTH,
     )
     info = record.get("info")
     if not isinstance(info, dict):
@@ -178,57 +191,75 @@ def _finding_from_record(
         target = normalize_http_url(host).value
     except ValueError:
         raise ValueError("Nuclei record host is invalid") from None
-    evidence = evidence_by_target.get(target)
-    if evidence is None:
+    endpoint = endpoints_by_target.get(target)
+    if endpoint is None:
         return None
-    matcher = _optional_name(record, "matcher-name", MatcherName)
-    extractor = _optional_name(record, "extractor-name", ExtractorName)
-    identity_material = "\x1f".join(
-        (
-            template_id.value,
-            evidence.value,
-            matcher.value if matcher is not None else "",
-            extractor.value if extractor is not None else "",
-        )
-    ).encode("utf-8")
-    identity = FindingId(
-        f"nuclei_{hashlib.sha256(identity_material).hexdigest()}"
-    )
-    return Finding(
-        finding_id=identity,
-        template=TemplateReference(template_id),
-        title=title,
+    _optional_name(record, "matcher-name")
+    _optional_name(record, "extractor-name")
+    try:
+        ip_address(endpoint.hostname)
+    except ValueError:
+        asset_kind = AssetIdentityKind.HOSTNAME
+    else:
+        asset_kind = AssetIdentityKind.IP_ADDRESS
+    asset = AffectedAsset(asset_kind, endpoint.hostname)
+    classification = FindingClassification.from_title(
+        title,
         severity=severity,
+    )
+    context = FindingContext(asset=asset, endpoint=endpoint)
+    identity = FindingIdentity(
+        classification_id=classification.identifier,
+        asset=asset,
+        endpoint=endpoint,
+    )
+    source = EvidenceSource(EvidenceSourceKind.TOOL, "nuclei")
+    return FindingRecord(
+        identity=identity,
+        fingerprint=finding_fingerprint(identity),
+        classification=classification,
+        context=context,
+        evidence=(
+            FindingEvidence(
+                kind=EvidenceKind.HTTP,
+                method=DetectionMethod.ACTIVE,
+                confidence=EvidenceConfidence.HIGH,
+                quality=EvidenceQuality.NORMAL,
+                source=source,
+                summary=EvidenceSummary(
+                    "Template-based HTTP detection matched an approved endpoint."
+                ),
+            ),
+        ),
+        metadata=FindingMetadata(
+            source=source,
+            source_record_id=source_record_id,
+        ),
         status=FindingStatus.DETECTED,
-        evidence=evidence,
-        matcher=cast(MatcherName | None, matcher),
-        extractor=cast(ExtractorName | None, extractor),
     )
 
 
-def _finding_value_key(finding: Finding) -> tuple[object, ...]:
+def _finding_value_key(finding: FindingRecord) -> tuple[object, ...]:
     return (
-        finding.template.template_id.value,
-        finding.evidence.value,
-        finding.title.casefold(),
-        finding.title,
-        finding.severity.value,
+        finding.classification.identifier,
+        finding.classification.title.casefold(),
+        finding.classification.title,
+        finding.classification.severity.value,
         finding.status.value,
-        finding.matcher.value if finding.matcher is not None else "",
-        finding.extractor.value if finding.extractor is not None else "",
-        finding.finding_id.value,
+        finding.metadata.source_record_id or "",
+        finding.fingerprint.value,
     )
 
 
 def _parse_jsonl(
     output: str,
     *,
-    evidence_by_target: dict[str, EvidenceReference],
+    endpoints_by_target: dict[str, AffectedEndpoint],
     max_records: int,
     discard_unterminated_final_line: bool,
 ) -> _ParseResult:
     if not output:
-        return _ParseResult(FindingCollection(), 0, 0, 0, 0)
+        return _ParseResult(FindingRecordCollection(), 0, 0, 0, 0)
     lines = output.splitlines()
     malformed = 0
     if discard_unterminated_final_line and not output.endswith(("\n", "\r")):
@@ -237,13 +268,13 @@ def _parse_jsonl(
     nonempty = tuple(line for line in lines if line.strip())
     if len(nonempty) > max_records:
         return _ParseResult(
-            FindingCollection(),
+            FindingRecordCollection(),
             malformed + 1,
             0,
             0,
             len(nonempty),
         )
-    findings: dict[FindingId, Finding] = {}
+    findings: dict[FindingFingerprint, FindingRecord] = {}
     duplicates = 0
     unassociated = 0
     for line in nonempty:
@@ -258,7 +289,7 @@ def _parse_jsonl(
         try:
             finding = _finding_from_record(
                 cast(dict[object, object], raw),
-                evidence_by_target,
+                endpoints_by_target,
             )
         except (TypeError, ValueError):
             malformed += 1
@@ -266,19 +297,19 @@ def _parse_jsonl(
         if finding is None:
             unassociated += 1
             continue
-        existing = findings.get(finding.finding_id)
+        existing = findings.get(finding.fingerprint)
         if existing is not None:
             duplicates += 1
             if existing != finding:
                 malformed += 1
-                findings[finding.finding_id] = min(
+                findings[finding.fingerprint] = min(
                     (existing, finding),
                     key=_finding_value_key,
                 )
             continue
-        findings[finding.finding_id] = finding
+        findings[finding.fingerprint] = finding
     return _ParseResult(
-        FindingCollection(tuple(findings.values())),
+        FindingRecordCollection(tuple(findings.values())),
         malformed,
         duplicates,
         unassociated,
@@ -412,7 +443,7 @@ class NucleiVulnerabilityDetectionProvider:
         )
         parsed = _parse_jsonl(
             output,
-            evidence_by_target=prepared.evidence_by_target,
+            endpoints_by_target=prepared.endpoints_by_target,
             max_records=self._config.max_records,
             discard_unterminated_final_line=output_truncated,
         )
